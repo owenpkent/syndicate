@@ -80,3 +80,16 @@ services:
       - ./config:/app/config
       - ./src/sniper_agent:/app
     restart: always
+
+  dashboard:
+    image: syndicate-sniper_agent
+    container_name: syndicate_dashboard
+    depends_on:
+      - postgres
+    environment:
+      - DB_HOST=postgres
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./src:/app
+    command: ["python", "dashboard.py"]
+    restart: always
