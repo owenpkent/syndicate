@@ -21,7 +21,8 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ./data/postgres_v2:/var/lib/postgresql/data
+      - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
 
   oracle_agent:
@@ -31,6 +32,10 @@ services:
       - redis
     environment:
       - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./config:/app/config
+      - ./src/oracle_agent:/app
     restart: always
 
   scout_agent:
@@ -40,6 +45,10 @@ services:
       - redis
     environment:
       - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./config:/app/config
+      - ./src/scout_agent:/app
     restart: always
 
   analytics_engine:
@@ -51,6 +60,10 @@ services:
     environment:
       - REDIS_HOST=redis
       - DB_HOST=postgres
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./config:/app/config
+      - ./src/analytics_engine:/app
     restart: always
 
   sniper_agent:
@@ -62,4 +75,8 @@ services:
       - .env
     environment:
       - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./config:/app/config
+      - ./src/sniper_agent:/app
     restart: always
