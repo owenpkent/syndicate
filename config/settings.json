@@ -1,0 +1,5 @@
+{
+    "safety_buffer_ev": 0.02,
+    "kelly_multiplier": 0.25,
+    "default_slippage": 0.005
+}

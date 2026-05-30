@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: syndicate_broker
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: syndicate_db
+    environment:
+      POSTGRES_USER: syndicate_admin
+      POSTGRES_PASSWORD: changeme_in_env
+      POSTGRES_DB: market_history
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  oracle_agent:
+    build: ./src/oracle_agent
+    container_name: agent_oracle
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    restart: always
+
+  scout_agent:
+    build: ./src/scout_agent
+    container_name: agent_scout
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    restart: always
+
+  analytics_engine:
+    build: ./src/analytics_engine
+    container_name: agent_engine
+    depends_on:
+      - redis
+      - postgres
+    environment:
+      - REDIS_HOST=redis
+      - DB_HOST=postgres
+    restart: always
+
+  sniper_agent:
+    build: ./src/sniper_agent
+    container_name: agent_sniper
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+    restart: always
