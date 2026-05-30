@@ -1,4 +1,12 @@
 [
-    {"timestamp": "2026-05-30T10:00:00Z", "market": "NBA", "event": "Lakers vs Celtics", "odds": 1.95, "true_prob": 0.55},
-    {"timestamp": "2026-05-30T10:05:00Z", "market": "NBA", "event": "Lakers vs Celtics", "odds": 2.10, "true_prob": 0.55}
+    {"market_id": "NBA-001", "odds": 2.10, "true_prob": 0.55, "outcome": 1},
+    {"market_id": "NBA-002", "odds": 1.95, "true_prob": 0.52, "outcome": 1},
+    {"market_id": "NBA-003", "odds": 2.50, "true_prob": 0.40, "outcome": 0},
+    {"market_id": "NBA-004", "odds": 2.05, "true_prob": 0.58, "outcome": 1},
+    {"market_id": "NBA-005", "odds": 1.85, "true_prob": 0.60, "outcome": 1},
+    {"market_id": "NBA-006", "odds": 2.30, "true_prob": 0.45, "outcome": 0},
+    {"market_id": "NBA-007", "odds": 2.00, "true_prob": 0.53, "outcome": 1},
+    {"market_id": "NBA-008", "odds": 2.15, "true_prob": 0.50, "outcome": 0},
+    {"market_id": "NBA-009", "odds": 1.90, "true_prob": 0.55, "outcome": 1},
+    {"market_id": "NBA-010", "odds": 2.40, "true_prob": 0.42, "outcome": 0}
 ]

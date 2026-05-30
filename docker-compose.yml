@@ -64,6 +64,7 @@ services:
     volumes:
       - ./config:/app/config
       - ./src/analytics_engine:/app
+      - ./tests:/app/tests
     restart: always
 
   sniper_agent:
