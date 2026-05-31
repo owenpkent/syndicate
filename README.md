@@ -64,17 +64,27 @@ The architecture executes a "Cluster in a Box" design pattern using Docker conta
 
 ```text
 .
-├── docs/                     # Deep-dive documentation wiki
-├── config/                   # Global parameters & DB init scripts
-├── data/                     # Persistent volumes (Postgres/Redis)
-├── src/                      # Micro-agent source code
-│   ├── analytics_engine/     # Mathematical modeling (SciPy/Sklearn)
-│   ├── oracle_agent/         # Data scrapers & ingestion
-│   ├── scout_agent/          # WebSocket market watchers
-│   ├── sniper_agent/         # Order execution & paper logs
-│   └── dashboard.py          # Real-time performance UI
-└── tests/                    # Simulation & backtesting suite
+├── [docs/](docs/)                     # Deep-dive documentation wiki
+├── [config/](config/)                 # Global parameters & DB init scripts
+├── data/                              # Persistent volumes (git-ignored)
+├── [src/](src/)                       # Micro-agent source code
+│   ├── [analytics_engine/](src/analytics_engine/)     # Mathematical modeling (SciPy/Sklearn)
+│   ├── [oracle_agent/](src/oracle_agent/)             # Data scrapers & ingestion
+│   ├── [scout_agent/](src/scout_agent/)               # WebSocket market watchers
+│   ├── [sniper_agent/](src/sniper_agent/)             # Order execution & paper logs
+│   └── [dashboard.py](src/dashboard.py)               # Real-time performance UI
+└── [tests/](tests/)                   # Simulation & backtesting suite
 ```
+
+---
+
+## ─── Core Modules ───
+
+*   **[Analytics Engine](src/analytics_engine/main.py)**: The central processing loop coordinating model prediction and risk management.
+*   **[Arbitrage Logic](src/analytics_engine/arbitrage_engine.py)**: Real-time cross-venue discrepancy detection.
+*   **[Portfolio Manager](src/analytics_engine/portfolio_manager.py)**: Global exposure and correlation guards.
+*   **[Model Trainer](src/analytics_engine/model_trainer.py)**: Automated Logistic Regression and Elo training pipeline.
+*   **[Backtest Pipeline](tests/backtest_pipeline.py)**: Historical simulation and strategy validation engine.
 
 ---
 
