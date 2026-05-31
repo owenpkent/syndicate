@@ -73,9 +73,11 @@ def scrape_date(date_str, sport_id, api_key):
                             am_odds = prices[aff_id].get("price")
                             dec_odds = american_to_decimal(am_odds)
                             
-                            if part.get("name") == home_team:
+                            # Improved name matching (partial/case-insensitive)
+                            p_name = part.get("name", "").lower()
+                            if home_team.lower() in p_name or p_name in home_team.lower():
                                 home_odds = dec_odds
-                            else:
+                            elif away_team.lower() in p_name or p_name in away_team.lower():
                                 away_odds = dec_odds
             
             parsed_records.append((

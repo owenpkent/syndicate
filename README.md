@@ -13,21 +13,31 @@ An autonomous, distributed-agent quantitative trading pipeline and validation en
 
 ### 1. Requirements
 *   **Hardware:** Optimized for 16+ thread CPU architectures (e.g., AMD Ryzen 9).
-*   **Software:** Docker & Docker Compose installed on Ubuntu 24.04.
+*   **Software:** Docker & Docker Compose, Python 3.12+ (for host-side tools).
 
 ### 2. Deployment
 ```bash
 git clone https://github.com/owenpkent/syndicate.git
 cd syndicate
 cp .env.example .env
+make setup            # Initialize local venv & dependencies
 docker compose up -d --build
 ```
 
-### 3. Verify
-Monitor the live autonomous loop across all agents:
-```bash
-docker compose logs -f
-```
+### 3. Verify & Monitor
+*   **Live Logs:** `docker compose logs -f`
+*   **CLI Dashboard:** `make dashboard`
+*   **Performance Charts:** `make plot` (PnL) or `make calibrate` (Model Accuracy)
+
+---
+
+## ─── Performance Visualization ───
+
+The Syndicate includes a suite of Python-driven visualization tools to verify alpha:
+
+*   **[Walk-Forward Simulation](scripts/visualize_backtest.py)**: Replicates real-time model learning and trading over 500+ games. Run with `make backtest-viz`.
+*   **[PnL Equity Curve](scripts/visualize_pnl.py)**: Visualizes bankroll growth and volatility. Run with `make plot`.
+*   **[Model Calibration](scripts/visualize_calibration.py)**: Diagnostic tool for probability accuracy. Run with `make calibrate`.
 
 ---
 

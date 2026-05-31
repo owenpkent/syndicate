@@ -1,55 +1,72 @@
 # Developer Guide: Project Syndicate
 
-This guide explains how to extend, monitor, and validate the Syndicate's performance.
+This guide explains how to extend, monitor, and validate the Syndicate's performance using the provided developer tooling.
 
 ---
 
-## 1. Running Backtests
+## 1. Local Environment Setup
 
-The backtesting engine allows you to simulate your strategy against historical data.
-
-### Execution
-Run the backtest within the `analytics_engine` container to ensure the mathematical environment is identical to production:
+To run visualizations and diagnostic tools on your host machine, you must initialize the local environment:
 
 ```bash
-docker exec agent_engine python tests/backtest_pipeline.py --input tests/mock_ticks.json --bankroll 1000 --kelly 0.25
+make setup
 ```
+This creates a `./venv`, upgrades `pip`, and installs all host-side dependencies (`psycopg2`, `matplotlib`, `scikit-learn`).
 
-### Data Format
-Input files (JSON) should follow this structure:
-```json
-[
-  {
-    "market_id": "NBA-001",
-    "odds": 2.10,
-    "true_prob": 0.55,
-    "outcome": 1
-  }
-]
+---
+
+## 2. Running Simulations
+
+### Walk-Forward Backtest (Visual)
+This performs a game-by-game simulation where the model learns and trades over your historical database.
+
+```bash
+make backtest-viz
+```
+*Output:* `data/plots/backtest_performance.png`
+
+### Granular Pipeline Audit
+Executes a technical backtest against a specific tick-data array (e.g., `tests/mock_ticks.json`).
+
+```bash
+make backtest
 ```
 
 ---
 
-## 2. Real-Time Performance Monitoring
+## 3. Performance Monitoring
 
 ### CLI Dashboard
-Syndicate includes a built-in real-time dashboard that queries the `trade_history` database.
+Syndicate includes a built-in real-time dashboard.
 
-View the live feed:
 ```bash
-docker compose logs -f dashboard
+make dashboard
 ```
 
-### Manual Database Queries
-You can query the Postgres database directly to perform custom analysis:
+### Visual Analytics
+Generate diagnostic charts based on live trade history:
+
+*   **PnL Equity Curve:** `make plot`
+*   **Model Calibration:** `make calibrate`
+
+### Database Shell
+Direct access to the PostgreSQL instance:
 
 ```bash
-docker exec syndicate_db psql -U syndicate_admin -d market_history -c "SELECT * FROM trade_history;"
+make shell
 ```
 
 ---
 
-## 3. Extending the System
+## 4. Extending the System
+
+### Seeding Demo Data
+To test visualizations before live history has accumulated:
+
+```bash
+make demo
+```
+This populates the database with 500 matched games and trades.
 
 ### Adding a New Oracle Scraper
 1.  Add your API logic to `src/oracle_agent/main.py`.
@@ -57,6 +74,6 @@ docker exec syndicate_db psql -U syndicate_admin -d market_history -c "SELECT * 
 3.  Restart the agent: `docker compose restart oracle_agent`.
 
 ### Modifying the Math Engine
-1.  All core math utilities are housed in `src/analytics_engine/math_utils.py` and `advanced_models.py`.
-2.  Because source code is volume-mounted in development mode, changes take effect upon agent restart.
-3.  **Always** run the backtest after modifying the math core to verify expected PnL impact.
+1.  Core math utilities are in `src/analytics_engine/math_utils.py` and `advanced_models.py`.
+2.  Changes take effect immediately on agent restart due to Docker volume mounts.
+3.  **Always** run `make backtest-viz` after modifying the math core to verify the PnL impact.
