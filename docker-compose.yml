@@ -21,12 +21,13 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data/postgres_v2:/var/lib/postgresql/data
+      - ./data/sportsball_postgres:/var/lib/postgresql/data
       - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
 
   oracle_agent:
     build: ./src/oracle_agent
+    image: sportsball-oracle_agent
     container_name: agent_oracle
     depends_on:
       - redis
@@ -42,6 +43,7 @@ services:
 
   scout_agent:
     build: ./src/scout_agent
+    image: sportsball-scout_agent
     container_name: agent_scout
     depends_on:
       - redis
@@ -55,6 +57,7 @@ services:
 
   analytics_engine:
     build: ./src/analytics_engine
+    image: sportsball-analytics_engine
     container_name: agent_engine
     depends_on:
       - redis
@@ -73,6 +76,7 @@ services:
 
   sniper_agent:
     build: ./src/sniper_agent
+    image: sportsball-sniper_agent
     container_name: agent_sniper
     depends_on:
       - redis
@@ -101,6 +105,7 @@ services:
 
   settlement_agent:
     build: ./src/settlement_agent
+    image: sportsball-settlement_agent
     container_name: agent_settlement
     depends_on:
       - postgres

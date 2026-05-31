@@ -50,6 +50,19 @@ def get_active_trades(r):
     trades_raw = r.hgetall("active_trades")
     return [{"market_id": k, "size": float(v)} for k, v in trades_raw.items()]
 
+def get_team_stats(conn, team_name):
+    """
+    Fetches the latest advanced stats for a team from PostgreSQL.
+    """
+    if not conn: return None
+    try:
+        with conn.cursor() as cur:
+            # Flexible matching for team names
+            cur.execute("SELECT net_rating, pace FROM team_advanced_stats WHERE team_name ILIKE %s LIMIT 1", (f"%{team_name}%",))
+            return cur.fetchone()
+    except:
+        return None
+
 def main():
     print("Analytics Engine starting...")
     redis_host = os.getenv("REDIS_HOST", "localhost")
@@ -81,8 +94,6 @@ def main():
                 market_id = data.get("market_id", "unknown")
 
                 if "raw_stats" in data:
-                    # win_prob_model is defined in advanced_models scope or initialized here
-                    # For this refactor, we reuse the pre-initialized model logic
                     from advanced_models import LogisticWinProbability
                     static_model = LogisticWinProbability()
                     static_model.train([[1500, 1400], [1400, 1500], [1600, 1500]], [1, 0, 1])
@@ -91,41 +102,54 @@ def main():
                     try:
                         matchup = data["metadata"]["matchup"]
                         away_team, home_team = matchup.split(" @ ")
+                        
+                        # 1. Base Elo Ratings
                         r_home = ratings.get(home_team, 1500)
                         r_away = ratings.get(away_team, 1500)
-                        diff = (r_home + 50) - r_away
-                        true_prob = model.predict_proba([[diff]])[0][1]
+                        
+                        # 2. Advanced Stats Enrichment
+                        s_home = get_team_stats(conn, home_team)
+                        s_away = get_team_stats(conn, away_team)
+                        
+                        adj_diff = (r_home + 50) - r_away
+                        if s_home and s_away:
+                            net_diff = float(s_home[0]) - float(s_away[0])
+                            adj_diff += (net_diff * 20) # 20 Elo points per 1.0 Net Rating
+                        
+                        # Get probability from model
+                        true_prob = model.predict_proba([[adj_diff]])[0][1]
+                        
                         if "participant" in data["metadata"] and data["metadata"]["participant"] != home_team:
                             true_prob = 1 - true_prob
-                    except:
+                            
+                        print(f"Analytics Engine: Model prediction for {data['metadata']['participant']}: {true_prob:.4f} (Net Rating Adj: {('Yes' if s_home else 'No')})")
+                    except Exception as e:
+                        print(f"Error predicting from matchup: {e}")
                         true_prob = data.get("true_prob")
                 else:
                     true_prob = data.get("true_prob")
 
                 ev = calculate_ev(true_prob, odds)
 
-                # --- ARBITRAGE DETECTION ---
+                # Arbitrage Detection
                 if "metadata" in data and "participant" in data["metadata"] and "matchup" in data["metadata"]:
-                    # Identify if this signal is for the Home or Away team
-                    matchup = data["metadata"]["matchup"]
                     try:
+                        matchup = data["metadata"]["matchup"]
                         away_team, home_team = matchup.split(" @ ")
                         pt_type = "Home" if data["metadata"]["participant"] == home_team else "Away"
                         source = data["metadata"].get("source", "Unknown")
-                        
                         eid = arb_engine.update_odds(market_id, odds, source, pt_type)
                         if eid:
-                            arb_opportunity = arb_engine.check_arbitrage(eid)
-                            if arb_opportunity:
-                                print(f"[ARBITRAGE] Found {arb_opportunity['profit_margin']*100:.2f}% Margin for {eid}!")
+                            arb_opp = arb_engine.check_arbitrage(eid)
+                            if arb_opp:
+                                print(f"[ARBITRAGE] Found {arb_opp['profit_margin']*100:.2f}% Margin for {eid}!")
                                 r.rpush("execution_signals", json.dumps({
                                     "type": "ARBITRAGE",
                                     "event_id": eid,
-                                    "margin": arb_opportunity["profit_margin"],
-                                    "legs": arb_opportunity["legs"]
+                                    "margin": arb_opp["profit_margin"],
+                                    "legs": arb_opp["legs"]
                                 }))
-                    except:
-                        pass
+                    except: pass
 
                 if conn:
                     try:
@@ -140,8 +164,6 @@ def main():
                 
                 if ev > buffer:
                     fraction = calculate_kelly_fraction(ev, odds, multiplier)
-                    
-                    # --- PORTFOLIO RISK CHECK ---
                     active_trades = get_active_trades(r)
                     adjusted_fraction = risk_manager.evaluate_risk({
                         "market_id": market_id,
@@ -168,4 +190,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

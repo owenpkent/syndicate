@@ -58,7 +58,52 @@ make shell
 
 ---
 
-## 4. Extending the System
+## 4. Quantitative Audit Tools
+
+Sportsball provides professional tools to verify that your alpha is real:
+
+### Closing Line Value (CLV)
+Quantifies your edge by comparing your executed odds to the final market price.
+
+```bash
+make clv
+```
+
+### Professional Model Evaluation
+Calculates Brier Score, Log-Loss, and RMSE to audit the model's predictive power.
+
+```bash
+make evaluate
+```
+
+### System Health
+Real-time status check of the Redis broker and agent connectivity.
+
+```bash
+make health
+```
+
+---
+
+## 5. Data Management & Enrichment
+
+### Managed Historical Backfill
+Populates the database with multi-sport, multi-season history from The Rundown.
+
+```bash
+docker exec agent_engine python backfill_manager.py
+```
+
+### NBA Advanced Stats Fetcher
+Pulls real-time Offensive/Defensive ratings and Pace using the `nba_api`.
+
+```bash
+make fetch-stats
+```
+
+---
+
+## 6. Extending the System
 
 ### Seeding Demo Data
 To test visualizations before live history has accumulated:

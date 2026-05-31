@@ -53,7 +53,20 @@ Used to price derivative markets (Alternative Spreads, Over/Unders) where analyt
 
 ---
 
-## 3. Scoring Distributions (Poisson)
+## 3. Advanced Stats Enrichment
+
+The Analytics Engine dynamically enriches signals with real-time advanced statistics to improve prediction accuracy.
+
+### Net Rating Adjustment
+For NBA markets, the system retrieves Offensive and Defensive ratings from the `team_advanced_stats` table. The Elo differential is adjusted based on the Net Rating discrepancy:
+
+$$\text{Elo}_{\text{adj}} = (\text{Elo}_{\text{home}} + \text{HFA}) - \text{Elo}_{\text{away}} + (\text{NetRating}_{\text{diff}} \times 20)$$
+
+This allows the model to account for recent team efficiency that may not yet be reflected in the base Elo rating.
+
+---
+
+## 4. Scoring Distributions (Poisson)
 
 For discrete scoring environments (Soccer, Team Totals), we model the number of scoring events ($k$) given a mean rate ($\lambda$):
 

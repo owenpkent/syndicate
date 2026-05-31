@@ -47,13 +47,22 @@ The system uses **Redis** as a high-speed message broker (Streams/PubSub) to fac
 *   Subscribes to `execution_signals`.
 *   Performs final safety checks (Slippage tolerance).
 *   Signs transactions or logs "Paper Trades" for performance tracking.
+*   Pushes success trades to `active_trades` Redis hash for real-time risk coordination.
+
+### Settlement Agent (The Accountant)
+*   Monitors `trade_history` for non-finalized trades.
+*   Matches trades with `historical_results` once outcomes are available.
+*   Calculates real PnL and updates trade status to `WIN` or `LOSS`.
+*   Provides the "Truth Loop" required for accurate visual performance tracking.
 
 ---
 
-## 3. Infrastructure & Isolation
+## 3. Infrastructure & Persistence
 
-*   **Docker Orchestration:** Containers ensure zero dependency cross-contamination. Each agent has its own isolated runtime and environment variables.
-*   **Networking:** All internal traffic happens on a private Docker bridge network. Only the Broker and Database expose ports to the host machine for monitoring.
-*   **Persistence:**
-    *   **Postgres:** Long-term storage for trade history, market movements, and model performance.
-    *   **Redis:** Volatile, high-speed RAM storage for the active signal pipeline.
+*   **Docker Orchestration:** Isolated runtimes for all 5 agents + 2 infrastructure services (Redis/Postgres).
+*   **Persistence Layer (PostgreSQL):**
+    *   `historical_results`: Multi-season repository of past outcomes and closing lines.
+    *   `market_history`: Real-time log of every processed model prediction and $EV$ signal.
+    *   `trade_history`: Immutable ledger of executed positions and final settlements.
+    *   `team_advanced_stats`: Real-time feature storage for model enrichment.
+*   **Broker (Redis):** Orchestrates the high-speed signal pipeline via List-based queues and maintains real-time portfolio exposure state.

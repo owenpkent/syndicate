@@ -1,7 +1,7 @@
 # Project Sportsball Tooling
 
 PYTHON=./venv/bin/python3
-PIP=./venv/bin/pip
+PIP=$(PYTHON) -m pip
 
 .PHONY: setup dashboard plot calibrate backtest shell
 
@@ -37,6 +37,10 @@ evaluate:
 health:
 	@echo "Checking system health..."
 	@export REDIS_HOST=localhost && $(PYTHON) scripts/monitor_agents.py
+
+fetch-stats:
+	@echo "Fetching NBA Advanced stats..."
+	@export DB_HOST=localhost && $(PYTHON) scripts/fetch_nba_stats.py
 
 demo:
 	@echo "Seeding demo data for visualization..."

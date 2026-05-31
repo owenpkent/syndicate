@@ -41,6 +41,17 @@ Sportsball includes a suite of Python-driven visualization tools to verify alpha
 
 ---
 
+## ─── Production Utilities ───
+
+Professional-grade tools for system health and quantitative audit:
+
+*   **[CLV Tracker](scripts/analyze_clv.py)**: Quantify your betting edge by tracking Closing Line Value. Run with `make clv`.
+*   **[Model Evaluator](scripts/evaluate_stats.py)**: Audit probability accuracy using Brier Score and Log-Loss. Run with `make evaluate`.
+*   **[Health Monitor](scripts/monitor_agents.py)**: Real-time "heartbeat" check for the entire cluster. Run with `make health`.
+*   **[Advanced Stats Fetcher](scripts/fetch_nba_stats.py)**: Enrichment tool for real-time NBA features. Run with `make fetch-stats`.
+
+---
+
 ## ─── Documentation Wiki ───
 
 For deep dives into specific system components, refer to our documentation library:
