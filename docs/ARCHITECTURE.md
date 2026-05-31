@@ -15,8 +15,9 @@ The system uses **Redis** as a high-speed message broker (Streams/PubSub) to fac
 [ Oracle Agent ]  ──( market_signals )──► [ Analytics Engine ] ──► [ Postgres DB ]
 [ Scout Agent  ]  ──( market_signals )──► [ Analytics Engine ]
                                                  │
-                                         ( execution_signals )
-                                                 │
+                                         ┌───────┴───────┐
+                                ( execution_signals ) ( ARB_signals )
+                                         └───────┬───────┘
                                                  ▼
                                           [ Sniper Agent ] ──► [ Execution Venue ]
 ```
@@ -37,7 +38,8 @@ The system uses **Redis** as a high-speed message broker (Streams/PubSub) to fac
 
 ### Analytics Engine (The Brain)
 *   Subscribes to all `market_signals`.
-*   Applies statistical models (Regression, Poisson, MC) to determine $P_{\text{true}}$.
+*   **EV Strategy:** Applies statistical models (Regression, Poisson, MC) to determine $P_{\text{true}}$.
+*   **Arbitrage Strategy:** Maintains a cross-venue order book to detect risk-free discrepancies.
 *   Calculates $EV$ and optimal $f^*$ (Kelly size).
 *   Logs every signal to **PostgreSQL** for historical analysis.
 

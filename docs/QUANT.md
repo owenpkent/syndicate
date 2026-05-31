@@ -60,3 +60,24 @@ For discrete scoring environments (Soccer, Team Totals), we model the number of 
 $$P(X=k) = \frac{\lambda^k e^{-\lambda}}{k!}$$
 
 The engine aggregates these into a joint matrix to evaluate spreads and total lines.
+
+---
+
+## 4. Cross-Market Arbitrage
+
+Beyond statistical edge ($EV$), the Syndicate detects mathematical "lock" opportunities where discrepancies between venues allow for guaranteed profit.
+
+### The Arbitrage Equation
+An opportunity exists when the sum of the implied probabilities for all mutually exclusive outcomes of an event is less than 1.0:
+
+$$S = \sum_{i=1}^{n} \frac{1}{\text{Odds}_i} < 1$$
+
+The **Profit Margin** ($M$) is calculated as:
+$$M = (1 - S) \times 100\%$$
+
+### Multi-Leg Execution
+When $S < 1$, the engine constructs an `ARBITRAGE` signal requiring simultaneous execution of all $n$ legs. The capital is allocated to ensure an equal return regardless of the outcome:
+
+$$\text{Allocation}_i = \frac{1/\text{Odds}_i}{S}$$
+
+*Example:* A $100 budget on an arbitrage with $S=0.95$ results in a guaranteed return of $105.26 ($5.26 profit).
