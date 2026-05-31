@@ -56,9 +56,9 @@ The system uses **Redis** as a high-speed message broker to decouple the agents.
 *   Pushes success trades to `active_trades` Redis hash for real-time risk coordination.
 
 ### Settlement Agent (The Accountant)
-*   Monitors `trade_history` for non-finalized trades.
-*   Matches trades with `historical_results` once outcomes are available.
-*   Calculates real PnL and updates trade status to `WIN` or `LOSS`.
+*   Joins open `trades` to FINAL `events` on `event_id` (a foreign-key join).
+*   Grades each trade by `side`, writing `status` (`WIN`/`LOSS`) and realized `pnl`.
+*   Clears the settled position's exposure from `active_trades` (the reaper).
 *   Provides the "Truth Loop" required for accurate visual performance tracking.
 
 ---
@@ -66,11 +66,13 @@ The system uses **Redis** as a high-speed message broker to decouple the agents.
 ## 3. Infrastructure & Persistence
 
 *   **Docker Orchestration:** Isolated runtimes for all 5 agents + 2 infrastructure services (Redis/Postgres).
-*   **Persistence Layer (PostgreSQL):**
-    *   `historical_results`: Multi-season repository of past outcomes and closing lines.
-    *   `market_history`: Real-time log of every processed model prediction and $EV$ signal.
-    *   `trade_history`: Immutable ledger of executed positions and final settlements.
-    *   `team_advanced_stats`: Real-time feature storage for model enrichment.
+*   **Persistence Layer (PostgreSQL):** normalized around `event_id` foreign
+    keys — see [SCHEMA.md](SCHEMA.md) for the full model.
+    *   `events`: one row per game (SCHEDULED stub → FINAL with scores + closing lines).
+    *   `signals`: every modeled evaluation (EV log), FK → `events`.
+    *   `trades`: executed paper positions + realized PnL, FK → `events`.
+    *   `team_advanced_stats`: feature storage for model enrichment.
+    *   All SQL is centralized in the repository layer (`sportsball.store`).
 *   **Broker (Redis):** Orchestrates the high-speed signal pipeline via List-based queues and maintains real-time portfolio exposure state.
 
 ---
@@ -80,20 +82,23 @@ The system uses **Redis** as a high-speed message broker to decouple the agents.
 ### 4.1 End-to-end path of one signal
 
 ```text
-1. Oracle/Scout fetch a price        →  build a market_signal dict
-2. RPUSH market_signals (JSON)        →  Redis List
-3. Engine LPOP market_signals
-4. Engine computes P_true             →  trained model + Elo + net-rating enrichment
-5. Engine computes EV = P_true*odds-1 →  INSERT into market_history (always logged)
+1. Oracle/Scout fetch a price          →  build a market_signal dict
+2. RPUSH market_signals (JSON)
+3. Engine BRPOPLPUSH market_signals → in-flight  (reliable: ack after step 6)
+4. Engine computes P_true              →  trained ModelBundle + Elo + net-rating
+                                          (no model → ABSTAIN: log, never trade)
+5. Engine upsert_event_stub + record_signal(event_id, side, …)   →  events, signals
 6. If EV > safety_buffer_ev:
-     a. Kelly sizes the bet           →  f = multiplier * EV/(odds-1)
+     a. Kelly sizes the bet            →  f = multiplier * EV/(odds-1)
      b. PortfolioRiskManager clamps it →  global-exposure + correlation guards
-     c. RPUSH execution_signals
-7. Sniper LPOP execution_signals
-     a. PAPER mode: simulate slippage  →  INSERT trade_history (SUCCESS/FAILED)
-     b. HSET active_trades market_id size
-8. Settlement Agent (every 60s):
-     JOIN trade_history ↔ historical_results → UPDATE status to WIN/LOSS
+     c. RPUSH execution_signals  (carries event_id, side, teams — resolved once)
+7. Sniper BRPOPLPUSH execution_signals → in-flight
+     a. PAPER mode: simulate slippage  →  record_trade(status='OPEN', market_id)
+     b. HSET active_trades[market_id] = size
+8. Backfill/results feed               →  upsert_event_result(status='FINAL', scores, closes)
+9. Settlement (every 60s):
+     trades ⋈ events ON event_id (FINAL)  →  set status WIN/LOSS + pnl + settled_ts
+     HDEL active_trades[market_id]         →  exposure reaper
 ```
 
 Arbitrage takes a parallel branch in step 6: the `ArbitrageEngine` maintains a
@@ -117,18 +122,21 @@ Every Oracle/Scout producer **must** emit this shape onto `market_signals`:
 }
 ```
 
-> **Why `market_id` format matters:** the Engine, Settlement Agent, CLV, and
-> evaluation scripts all recover the event id and team by splitting on `-`.
-> Producers that don't follow `SOURCE-EVENTID-TEAM` will be logged but never
-> settled or enriched. This string-coupling is a known weakness (see §5).
+> **Why `market_id` format matters:** producers must emit `SOURCE-EVENTID-TEAM`.
+> The Engine parses it **once** (`store.parse_market_id`) to derive the
+> `event_id` and resolve `side`, then stamps both onto the execution signal — so
+> downstream agents and analytics use foreign-key joins on `event_id`, not
+> substring matching.
 
 ### 4.3 PostgreSQL tables
 
+Full column-level model in [SCHEMA.md](SCHEMA.md).
+
 | Table | Written by | Read by | Purpose |
 |-------|-----------|---------|---------|
-| `market_history` | Analytics Engine | dashboard, `evaluate_stats`, `visualize_calibration` | Every prediction + EV, whether or not it was traded |
-| `trade_history` | Sniper Agent, Settlement Agent | dashboard, `analyze_clv`, `visualize_pnl` | Executed paper trades and their final settled status |
-| `historical_results` | `historical_scraper`, `seed_demo_data` | Settlement, trainer, optimizer, CLV | Final scores + closing lines — the "truth" table |
+| `events` | Engine (stub), backfill/seed (result) | settlement, trainer, optimizer, CLV, dashboard | One row per game: teams, status, scores, closing lines |
+| `signals` | Analytics Engine | `evaluate`, `visualize_calibration` | Every modeled prediction + EV (FK → events) |
+| `trades` | Sniper, Settlement | dashboard, `clv`, `visualize_pnl` | Executed paper positions + realized PnL (FK → events) |
 | `team_advanced_stats` | `fetch_nba_stats` | Analytics Engine (enrichment) | Off/Def/Net rating + pace per team |
 
 ---
@@ -156,17 +164,19 @@ weaknesses; the rest are tracked as the roadmap.
   instead of always printing `[OK]`.
 * ✅ **One image, no duplication.** A single package + Docker image replaced the
   five copy-pasted agents and the 14 hardcoded DB-credential blocks.
+* ✅ **Normalized schema, real joins.** `events`/`signals`/`trades` with
+  `event_id` foreign keys replaced the fragile `LIKE '%' || event_id || '%'`
+  substring matching. All SQL lives in one repository layer (`sportsball.store`).
 
-**Still open (roadmap)**
+**Still open (roadmap — Phase 3)**
 
-1. **String-coupled identifiers.** Event/team identity is still recovered by
-   splitting `market_id` on `-` and `LIKE '%' || event_id || '%'` joins —
-   fragile and `O(n²)`. *Phase 2:* a normalized `events` table with foreign keys.
-2. **Scout uses placeholder subscriptions.** `assets_ids: ["123456","789012"]`
-   are not real Polymarket markets. *Phase 3:* resolve live `asset_ids` via the
-   Gamma API (override today with `SCOUT_ASSET_IDS`).
-3. **Cross-venue arbitrage is sim-only.** The book fills both legs only when two
+1. **Scout uses placeholder subscriptions.** `assets_ids: ["123456","789012"]`
+   are not real Polymarket markets. Resolve live `asset_ids` via the Gamma API
+   (override today with `SCOUT_ASSET_IDS`).
+2. **Cross-venue arbitrage is sim-only.** The book fills both legs only when two
    venues publish the same `event_id` with `Home`/`Away` types; the live Scout
-   doesn't emit that shape yet, so real cross-venue arbs await Phase 3.
+   doesn't emit that shape yet, so real cross-venue arbs await live data.
+3. **No automated retraining loop.** The modeling pipeline (optimize → train) is
+   run manually; a scheduled retrain on fresh backfill would keep ratings current.
 
 Contributions that close any of these are welcome.

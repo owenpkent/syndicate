@@ -16,6 +16,7 @@ from ..config import load_settings
 from ..db import Database
 from ..logging_conf import get_logger
 from ..quant.odds import american_to_decimal
+from ..store import Store
 
 log = get_logger("backfill")
 
@@ -26,16 +27,6 @@ MANAGED_SLATES = [
     (1, "2024-03-20", "2024-09-29"),
     (6, "2023-10-10", "2024-04-18"),
 ]
-
-UPSERT = """
-    INSERT INTO historical_results
-    (event_id, sport_id, event_date, home_team, away_team, home_score, away_score, home_odds, away_odds)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (event_id) DO UPDATE SET
-        home_score = EXCLUDED.home_score, away_score = EXCLUDED.away_score,
-        home_odds = EXCLUDED.home_odds, away_odds = EXCLUDED.away_odds
-"""
-
 
 def _side_odds(home_team, away_team, participants) -> tuple[float, float]:
     home_odds = away_odds = 0.0
@@ -86,16 +77,17 @@ def scrape_date(date_str: str, sport_id: int, api_key: str, retries: int = 3) ->
     return []
 
 
-def scrape_range(db: Database, sport_id: int, start: str, end: str, api_key: str) -> int:
+def scrape_range(store: Store, sport_id: int, start: str, end: str, api_key: str) -> int:
     cur = datetime.strptime(start, "%Y-%m-%d")
     end_dt = datetime.strptime(end, "%Y-%m-%d")
     total = 0
     while cur <= end_dt:
         date_str = cur.strftime("%Y-%m-%d")
         records = scrape_date(date_str, sport_id, api_key)
+        for rec in records:
+            store.upsert_event_result(*rec)  # (event_id, sport_id, date, home, away, hs, as, ho, ao)
         if records:
-            db.executemany(UPSERT, records)
-            log.info("%s: upserted %d records", date_str, len(records))
+            log.info("%s: upserted %d results", date_str, len(records))
             total += len(records)
         time.sleep(10)  # rate-limit courtesy
         cur += timedelta(days=1)
@@ -113,15 +105,15 @@ def main() -> None:
     if not settings.has_live_rundown_key():
         log.error("RUNDOWN_API_KEY not set; cannot backfill.")
         return
-    db = Database(settings.db)
+    store = Store(Database(settings.db))
 
     if args.managed:
         for sport_id, start, end in MANAGED_SLATES:
             log.info("--- Backfilling sport %d: %s to %s ---", sport_id, start, end)
-            scrape_range(db, sport_id, start, end, settings.rundown_api_key)
+            scrape_range(store, sport_id, start, end, settings.rundown_api_key)
             time.sleep(120)
     elif args.start and args.end:
-        scrape_range(db, args.sport, args.start, args.end, settings.rundown_api_key)
+        scrape_range(store, args.sport, args.start, args.end, settings.rundown_api_key)
     else:
         parser.error("provide --managed or both --start and --end")
 

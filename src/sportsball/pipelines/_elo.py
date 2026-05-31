@@ -12,7 +12,8 @@ from ..db import Database
 
 HISTORY_QUERY = """
     SELECT event_date, home_team, away_team, home_score, away_score
-    FROM historical_results
+    FROM events
+    WHERE status = 'FINAL' AND home_score IS NOT NULL
     ORDER BY event_date ASC
 """
 

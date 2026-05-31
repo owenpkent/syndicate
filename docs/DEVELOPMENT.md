@@ -1,17 +1,17 @@
 # Developer Guide: Project Sportsball
 
-This guide explains how to extend, monitor, and validate the Sportsball's performance using the provided developer tooling.
+This guide explains how to extend, monitor, and validate the Sportsball's performance using the provided developer tooling. For day-to-day operation (first run, the modeling loop, resetting the DB, troubleshooting) see the **[Operations Runbook](OPERATIONS.md)**; for the database layout see **[SCHEMA.md](SCHEMA.md)**.
 
 ---
 
 ## 1. Local Environment Setup
 
-To run visualizations and diagnostic tools on your host machine, you must initialize the local environment:
+To run tests, visualizations, and diagnostic tools on your host machine, initialize the local environment:
 
 ```bash
 make setup
 ```
-This creates a `./venv`, upgrades `pip`, and installs all host-side dependencies (`psycopg2`, `matplotlib`, `scikit-learn`).
+This creates a `./venv`, upgrades `pip`, and installs the `sportsball` package in editable mode with the `[tools]` extra (`matplotlib`, `pandas`, `nba_api`, `pytest`). After setup, `make test` runs the 71-test unit suite.
 
 ---
 

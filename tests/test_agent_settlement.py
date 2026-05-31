@@ -1,39 +1,46 @@
-"""Settlement grading + the exposure reaper."""
-from sportsball.agents.settlement import settle_once
+"""Settlement grading, PnL, and the exposure reaper on the FK-joined store."""
+import pytest
+
+from sportsball.agents.settlement import grade, settle_once
+from sportsball.store import PendingTrade, Store
 
 from fakes import FakeBroker, FakeDB
 
-# row shape: (id, market_id, home_team, away_team, home_score, away_score)
-HOME_WIN = (1, "MOCK-E1-Celtics", "Celtics", "Lakers", 110, 100)
-AWAY_BET_LOSS = (2, "MOCK-E1-Lakers", "Celtics", "Lakers", 110, 100)
+# pending_settlements row order: (id, side, executed_odds, stake_frac, market_id, home_score, away_score)
+HOME_WIN = (1, "HOME", 2.0, 0.05, "MOCK-E1-Celtics", 110, 100)
+HOME_LOSS = (2, "HOME", 2.0, 0.05, "MOCK-E1-Celtics", 100, 110)
 
 
-def test_grades_home_winner_and_reaps_exposure():
-    db = FakeDB(available=True, rows=[HOME_WIN])
-    broker = FakeBroker()
-    broker.set_exposure("MOCK-E1-Celtics", 0.05)
+class TestGrade:
+    def test_winning_home_pnl(self):
+        status, pnl = grade(PendingTrade(1, "HOME", 2.0, 0.05, "m", 110, 100))
+        assert status == "WIN"
+        assert pnl == pytest.approx(0.05)  # 0.05 * (2.0 - 1)
 
-    n = settle_once(db, broker)
-
-    assert n == 1
-    update = db.executed[0]
-    assert "UPDATE trade_history" in update[0]
-    assert update[1] == ("WIN", 1)
-    assert "MOCK-E1-Celtics" in broker.cleared  # reaper freed the slot
-    assert broker._exposure == {}
+    def test_losing_pnl_is_negative_stake(self):
+        status, pnl = grade(PendingTrade(1, "AWAY", 2.0, 0.05, "m", 110, 100))
+        assert status == "LOSS"
+        assert pnl == pytest.approx(-0.05)
 
 
-def test_grades_losing_side():
-    db = FakeDB(available=True, rows=[AWAY_BET_LOSS])
-    settle_once(db, FakeBroker())
-    assert db.executed[0][1] == ("LOSS", 2)
+class TestSettleOnce:
+    def test_settles_and_reaps_exposure(self):
+        store = Store(FakeDB(available=True, rows=[HOME_WIN]))
+        broker = FakeBroker()
+        broker.set_exposure("MOCK-E1-Celtics", 0.05)
 
+        n = settle_once(store, broker)
 
-def test_no_pending_is_noop():
-    db = FakeDB(available=True, rows=[])
-    assert settle_once(db, FakeBroker()) == 0
-    assert db.executed == []
+        assert n == 1
+        update_sql, params = store.db.executed[0]
+        assert "UPDATE trades" in update_sql
+        assert params[0] == "WIN" and params[2] == 1  # (status, pnl, id)
+        assert "MOCK-E1-Celtics" in broker.cleared
+        assert broker._exposure == {}
 
+    def test_no_pending_is_noop(self):
+        store = Store(FakeDB(available=True, rows=[]))
+        assert settle_once(store, FakeBroker()) == 0
 
-def test_db_unavailable_is_safe():
-    assert settle_once(FakeDB(available=False), FakeBroker()) == 0
+    def test_db_unavailable_is_safe(self):
+        assert settle_once(Store(FakeDB(available=False)), FakeBroker()) == 0

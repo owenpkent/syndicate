@@ -14,7 +14,7 @@ This document serves as the theoretical foundation for **Project Sportsball**. T
 
 ### 2. Statistical Forecasting
 *   **"Fixed Odds Sports Betting" by Joseph Buchdahl**
-    *   *Significance:* Deep dive into **Closing Line Value (CLV)**. This logic is implemented in `scripts/analyze_clv.py` to quantify our statistical edge.
+    *   *Significance:* Deep dive into **Closing Line Value (CLV)**. This logic is implemented in `src/sportsball/tools/clv.py` to quantify our statistical edge.
 *   **"Statistical Sports Models in Excel" by Andrew Mack**
     *   *Significance:* High-level logic for regression and feature engineering. Mack's approach to Z-scores and sigma distributions informs our `advanced_models.py`.
 *   **"Modelling Association Football Scores..." by Dixon and Coles (1997)**

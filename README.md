@@ -47,9 +47,9 @@ Sportsball includes a suite of Python-driven visualization tools to verify alpha
 
 Professional-grade tools for system health and quantitative audit:
 
-*   **[CLV Tracker](scripts/analyze_clv.py)**: Quantify your betting edge by tracking Closing Line Value. Run with `make clv`.
-*   **[Model Evaluator](scripts/evaluate_stats.py)**: Audit probability accuracy using Brier Score and Log-Loss. Run with `make evaluate`.
-*   **[Health Monitor](scripts/monitor_agents.py)**: Real-time "heartbeat" check for the entire cluster. Run with `make health`.
+*   **[CLV Tracker](src/sportsball/tools/clv.py)**: Quantify your betting edge by tracking Closing Line Value. Run with `make clv`.
+*   **[Model Evaluator](src/sportsball/tools/evaluate.py)**: Audit probability accuracy using Brier Score and Log-Loss. Run with `make evaluate`.
+*   **[Health Monitor](src/sportsball/tools/health.py)**: Real probe of Redis/Postgres, queue depth, and exposure (exits non-zero when degraded). Run with `make health`.
 *   **[Advanced Stats Fetcher](scripts/fetch_nba_stats.py)**: Enrichment tool for real-time NBA features. Run with `make fetch-stats`.
 
 ---
@@ -60,6 +60,8 @@ For deep dives into specific system components, refer to our documentation libra
 
 *   **[Quantitative Handbook](docs/QUANT.md)**: Explore the mathematical engine, including $EV$ calculation, Kelly Criterion sizing, Logistic Regression, and Monte Carlo simulations.
 *   **[System Architecture](docs/ARCHITECTURE.md)**: Detailed topology of the "Cluster in a Box" design, the Redis-backed signal pipeline, message schemas, and micro-agent specifications.
+*   **[Data Model](docs/SCHEMA.md)**: The normalized `events`/`signals`/`trades` schema, entity relationships, and the lifecycle of a bet from signal to settled PnL.
+*   **[Operations Runbook](docs/OPERATIONS.md)**: First run, the modeling loop, monitoring, resetting the database, and troubleshooting.
 *   **[Developer Guide](docs/DEVELOPMENT.md)**: Step-by-step instructions for running backtests, monitoring real-time performance via the Dashboard, and extending agent functionality.
 *   **[Quantitative Resources](docs/RESOURCES.md)**: Industry literature, mathematical foundations (Moneyball, Dixon-Coles), and data provider specifications.
 
@@ -78,21 +80,21 @@ The architecture executes a "Cluster in a Box" design pattern using Docker conta
         ┌─────────────────────┐
         │     Redis broker     │◄──── HSET "active_trades" (exposure)
         └─────────────────────┘
-                 │   LPOP
+                 │   BRPOPLPUSH (reliable)
                  ▼
-        ┌─────────────────────┐      INSERT
+        ┌─────────────────────┐   events (stub), signals
         │  Analytics Engine    │ ───────────────►  [ PostgreSQL ]
-        │  EV · Kelly · Arb    │                   market_history
-        └─────────────────────┘                   trade_history
-                 │   RPUSH "execution_signals"     historical_results
+        │  model · EV · Kelly  │   (abstains with no model)
+        └─────────────────────┘
+                 │   RPUSH "execution_signals" (event_id, side)
                  ▼
-        ┌─────────────────────┐      INSERT trade
+        ┌─────────────────────┐   trades (status=OPEN)
         │   Sniper Agent       │ ───────────────►  [ PostgreSQL ]
         │ (paper execution)    │
         └─────────────────────┘
-                 ▲   UPDATE WIN/LOSS
+                 ▲   set status WIN/LOSS + pnl, reap exposure
         ┌─────────────────────┐
-        │  Settlement Agent    │ ◄── JOIN trade_history ↔ historical_results
+        │  Settlement Agent    │ ◄── trades ⋈ events ON event_id (FK)
         └─────────────────────┘
 ```
 
@@ -113,13 +115,13 @@ image; each agent is a console entrypoint (`sportsball-oracle`, `-engine`, …).
 ├── data/                              # Persistent volumes (git-ignored)
 ├── Dockerfile                         # Single base image for all roles
 ├── [src/sportsball/](src/sportsball/)             # The package
-│   ├── config.py · db.py · broker.py · logging_conf.py   # Infrastructure layer
+│   ├── config.py · db.py · broker.py · store.py · logging_conf.py  # Infra + repository layer
 │   ├── [quant/](src/sportsball/quant/)            # Pure math: odds, poisson, models, arbitrage, portfolio
 │   ├── [agents/](src/sportsball/agents/)          # oracle · scout · engine · sniper · settlement
 │   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · backfill (run on demand)
 │   └── [tools/](src/sportsball/tools/)            # dashboard · health
 ├── [scripts/](scripts/)               # Host visualizations & stats enrichment
-└── [tests/](tests/)                   # Unit suite (63 tests) + backtest pipeline
+└── [tests/](tests/)                   # Unit suite (71 tests) + backtest pipeline
 ```
 
 ---

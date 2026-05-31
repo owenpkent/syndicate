@@ -1,72 +1,57 @@
-import psycopg2
+"""Calibration plot: predicted win probability vs realized win rate.
+
+Uses ``signals`` joined to FINAL ``events`` (via the repository), grading each
+signal against the side it actually priced — so the diagonal means "well
+calibrated" with no home/away ambiguity.
+"""
 import os
+
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-def get_db_connection():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        database=os.getenv("POSTGRES_DB", "market_history"),
-        user=os.getenv("POSTGRES_USER", "sportsball_admin"),
-        password=os.getenv("POSTGRES_PASSWORD", "changeme_in_env"),
-    )
+from sportsball.config import load_settings
+from sportsball.db import Database
+from sportsball.store import HOME, Store
+
 
 def plot_calibration():
-    """
-    Plots Predicted vs Actual win rate to check if our 'true_prob' is accurate.
-    """
-    print("Generating Calibration Plot...")
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            # Join market_history with historical_results to see how we did
-            # This requires matching the market_id (e.g. RUNDOWN-EVENTID-TEAM) 
-            # to the event_id and outcome in historical_results.
-            cur.execute("""
-                SELECT mh.true_prob, 
-                       CASE WHEN hr.home_score > hr.away_score THEN 1 ELSE 0 END as actual_home,
-                       hr.home_team
-                FROM market_history mh
-                JOIN historical_results hr ON mh.market_id LIKE '%' || hr.event_id || '%'
-                WHERE hr.home_score IS NOT NULL
-            """)
-            data = cur.fetchall()
-            
-            if not data:
-                print("Not enough matched history to generate calibration.")
-                return
+    store = Store(Database(load_settings().db))
+    rows = store.signal_outcome_rows()
+    if not rows:
+        print("Not enough matched history to generate calibration. Run 'make demo' first.")
+        return
 
-            probs = np.array([float(d[0]) for d in data])
-            actuals = np.array([d[1] for d in data])
+    probs, actuals = [], []
+    for true_prob, side, home_score, away_score in rows:
+        won = (side == HOME and home_score > away_score) or (side != HOME and away_score > home_score)
+        probs.append(float(true_prob))
+        actuals.append(1 if won else 0)
+    probs, actuals = np.array(probs), np.array(actuals)
 
-            # Bin the probabilities (0-0.1, 0.1-0.2, etc)
-            bins = np.linspace(0, 1, 11)
-            bin_indices = np.digitize(probs, bins) - 1
-            
-            bin_means = []
-            bin_actuals = []
-            
-            for i in range(len(bins) - 1):
-                mask = (bin_indices == i)
-                if np.any(mask):
-                    bin_means.append(np.mean(probs[mask]))
-                    bin_actuals.append(np.mean(actuals[mask]))
+    bins = np.linspace(0, 1, 11)
+    idx = np.digitize(probs, bins) - 1
+    bin_pred, bin_actual = [], []
+    for i in range(len(bins) - 1):
+        mask = idx == i
+        if np.any(mask):
+            bin_pred.append(probs[mask].mean())
+            bin_actual.append(actuals[mask].mean())
 
-            plt.figure(figsize=(8, 8))
-            plt.plot([0, 1], [0, 1], 'k--', label="Perfect Calibration")
-            plt.plot(bin_means, bin_actuals, 's-', label="Sportsball Model")
-            plt.title("Model Calibration: Predicted vs Actual Win Rate")
-            plt.xlabel("Predicted Win Probability")
-            plt.ylabel("Actual Win Rate")
-            plt.legend()
-            plt.grid(True)
-            
-            output_path = "calibration_plot.png"
-            plt.savefig(output_path)
-            print(f"Calibration plot saved to {output_path}")
+    plt.figure(figsize=(8, 8))
+    plt.plot([0, 1], [0, 1], "k--", label="Perfect calibration")
+    plt.plot(bin_pred, bin_actual, "s-", label="Sportsball model")
+    plt.title("Model Calibration: predicted vs actual win rate")
+    plt.xlabel("Predicted win probability")
+    plt.ylabel("Actual win rate")
+    plt.legend()
+    plt.grid(True)
+    os.makedirs("data/plots", exist_ok=True)
+    out = "data/plots/calibration_plot.png"
+    plt.savefig(out)
+    print(f"Calibration plot ({len(probs)} signals) saved to {out}")
 
-    finally:
-        conn.close()
 
 if __name__ == "__main__":
     plot_calibration()

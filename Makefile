@@ -46,10 +46,10 @@ calibrate:
 	@echo "Output saved to data/plots/calibration_plot.png"
 
 clv:
-	@DB_HOST=localhost $(PYTHON) scripts/analyze_clv.py
+	@DB_HOST=localhost $(PYTHON) -m sportsball.tools.clv
 
 evaluate:
-	@DB_HOST=localhost $(PYTHON) scripts/evaluate_stats.py
+	@DB_HOST=localhost $(PYTHON) -m sportsball.tools.evaluate
 
 fetch-stats:
 	@DB_HOST=localhost $(PYTHON) scripts/fetch_nba_stats.py

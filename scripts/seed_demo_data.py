@@ -1,71 +1,60 @@
-import psycopg2
-import os
-import random
-from datetime import datetime, timedelta
+"""Seed the normalized schema with demo data for visualization/testing.
 
-def get_db_connection():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        database=os.getenv("POSTGRES_DB", "market_history"),
-        user=os.getenv("POSTGRES_USER", "sportsball_admin"),
-        password=os.getenv("POSTGRES_PASSWORD", "changeme_in_env"),
-    )
+Generates FINAL events (scores + closing lines), the signals the Engine would
+have logged, and settled trades with realized PnL — enough to exercise the
+dashboard, CLV, evaluation, and equity-curve tools end to end.
+"""
+import random
+from datetime import datetime, timedelta, timezone
+
+from sportsball.config import load_settings
+from sportsball.db import Database
+from sportsball.store import HOME, Store
+
+N = 500
+RNG = random.Random(42)  # deterministic demo
+
 
 def seed():
-    print("Seeding database with 500 matched records for visualization...")
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            # Clear existing for a clean demo if desired, 
-            # but usually better to just append
-            
-            for i in range(500):
-                event_id = f"SEED-{i:03}"
-                # Generate a "True Probability"
-                true_prob = random.random()
-                # Simulate "Actual Outcome" based on that probability
-                outcome = 1 if random.random() < true_prob else 0
-                # Generate "Market Odds" (with some noise/discrepancy)
-                # If we're "good", our true_prob should correlate with outcome
-                odds = round(1 / (true_prob + random.uniform(-0.1, 0.1)), 2)
-                if odds <= 1: odds = 2.0
-                
-                market_id = f"RUNDOWN-{event_id}-TeamA"
-                
-                # Insert into market_history
-                cur.execute(
-                    "INSERT INTO market_history (market_id, odds, true_prob, ev) VALUES (%s, %s, %s, %s)",
-                    (market_id, odds, true_prob, (true_prob * odds) - 1)
-                )
-                
-                # Insert into historical_results
-                h_score = 110 if outcome == 1 else 100
-                a_score = 100 if outcome == 1 else 110
-                # Generate away_odds as well
-                away_odds = round(1 / ((1 - true_prob) + random.uniform(-0.1, 0.1)), 2)
-                if away_odds <= 1: away_odds = 2.0
-                
-                cur.execute("""
-                    INSERT INTO historical_results (event_id, home_team, away_team, home_score, away_score, home_odds, away_odds, event_date)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (event_id) DO UPDATE SET
-                    home_score = EXCLUDED.home_score,
-                    away_score = EXCLUDED.away_score,
-                    home_odds = EXCLUDED.home_odds,
-                    away_odds = EXCLUDED.away_odds
-                """, (event_id, "TeamA", "TeamB", h_score, a_score, odds, away_odds, datetime.now() - timedelta(days=i)))
+    store = Store(Database(load_settings().db))
+    if not store.available:
+        print("Database unavailable.")
+        return
+    print(f"Seeding {N} events + signals + trades...")
 
-                # Insert into trade_history (Simulation of executed trades)
-                if (true_prob * odds) - 1 > 0.05: # High EV trades
-                    cur.execute(
-                        "INSERT INTO trade_history (market_id, executed_odds, fraction, status) VALUES (%s, %s, %s, %s)",
-                        (market_id, odds, 0.02, "WIN" if outcome == 1 else "LOSS")
-                    )
+    trades = 0
+    for i in range(N):
+        event_id = f"SEED-{i:04d}"
+        home, away = "TeamA", "TeamB"
+        p_home = RNG.uniform(0.3, 0.7)               # "true" home win prob
+        home_won = RNG.random() < p_home             # outcome drawn from it
+        h_score, a_score = (110, 100) if home_won else (100, 110)
+        home_close = round(1 / max(0.05, p_home + RNG.uniform(-0.08, 0.08)), 2)
+        away_close = round(1 / max(0.05, (1 - p_home) + RNG.uniform(-0.08, 0.08)), 2)
+        event_date = datetime.now(timezone.utc) - timedelta(days=i)
 
-            conn.commit()
-            print("Successfully seeded 500 matched records.")
-    finally:
-        conn.close()
+        store.upsert_event_result(event_id, 4, event_date, home, away,
+                                  h_score, a_score, home_close, away_close)
+
+        ev = p_home * home_close - 1
+        store.record_signal(event_id, HOME, "SEED", home_close, p_home, ev)
+
+        if ev > 0.03:  # the Engine would have traded this
+            stake = 0.02
+            pnl = stake * (home_close - 1) if home_won else -stake
+            status = "WIN" if home_won else "LOSS"
+            store.record_trade(event_id, HOME, "SEED", home_close, stake, status,
+                               market_id=f"SEED-{event_id}-TeamA")
+            store.db.execute(
+                "UPDATE trades SET pnl = %s, settled_ts = now() "
+                "WHERE event_id = %s AND pnl IS NULL",
+                (pnl, event_id),
+            )
+            trades += 1
+
+    print(f"Seeded {N} events and {trades} settled trades. "
+          "Try 'make dashboard', 'make clv', 'make evaluate', or 'make plot'.")
+
 
 if __name__ == "__main__":
     seed()

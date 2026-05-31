@@ -1,4 +1,4 @@
-"""Real-time CLI performance dashboard (reads ``trade_history`` + results)."""
+"""Real-time CLI performance dashboard (reads the normalized schema)."""
 from __future__ import annotations
 
 import os
@@ -11,49 +11,54 @@ from ..db import Database
 
 def fetch_stats(db: Database) -> dict:
     stats: dict = {}
-    stats["total_trades"] = db.query_one("SELECT COUNT(*) FROM trade_history")[0]
-    stats["status_counts"] = dict(db.query("SELECT status, COUNT(*) FROM trade_history GROUP BY status"))
-    stats["arb_count"] = db.query_one(
-        "SELECT COUNT(*) FROM trade_history WHERE status = 'ARBITRAGE_LEG'")[0] // 2
+    stats["total_trades"] = db.query_one("SELECT COUNT(*) FROM trades")[0]
+    stats["status_counts"] = dict(db.query("SELECT status, COUNT(*) FROM trades GROUP BY status"))
+    stats["arb_count"] = db.query_one("SELECT COUNT(*) FROM trades WHERE is_arb")[0] // 2
     stats["avg_risk"] = db.query_one(
-        "SELECT AVG(fraction) FROM trade_history WHERE status = 'SUCCESS'")[0] or 0
-    stats["latest_trades"] = db.query(
-        "SELECT market_id, executed_odds, fraction, status, executed_timestamp "
-        "FROM trade_history ORDER BY executed_timestamp DESC LIMIT 10")
+        "SELECT AVG(stake_frac) FROM trades WHERE status IN ('OPEN','WIN','LOSS')")[0] or 0
+    stats["realized_pnl"] = db.query_one(
+        "SELECT COALESCE(SUM(pnl), 0) FROM trades WHERE pnl IS NOT NULL")[0] or 0
+    stats["latest"] = db.query(
+        "SELECT market_id, side, executed_odds, stake_frac, status FROM trades "
+        "ORDER BY executed_ts DESC LIMIT 10")
 
-    hist = db.query("SELECT home_score, away_score, home_odds, away_odds FROM historical_results")
-    correct = graded = 0
-    for hs, as_, ho, ao in hist:
-        if ho and ao and ho > 0 and ao > 0:
-            graded += 1
-            if (1 if ho < ao else 0) == (1 if hs > as_ else 0):
-                correct += 1
+    # Market baseline: how often the closing favorite actually won.
+    row = db.query_one(
+        """
+        SELECT COUNT(*) FILTER (
+                 WHERE (home_close < away_close) = (home_score > away_score)),
+               COUNT(*)
+        FROM events
+        WHERE status = 'FINAL' AND home_close > 0 AND away_close > 0
+        """)
+    correct, graded = (row or (0, 0))
     stats["favorite_hit_rate"] = (correct / graded * 100) if graded else 0
-    stats["hist_count"] = len(hist)
+    stats["event_count"] = db.query_one("SELECT COUNT(*) FROM events")[0]
     return stats
 
 
 def render(stats: dict) -> None:
     os.system("cls" if os.name == "nt" else "clear")
-    line = "=" * 60
+    line = "=" * 64
     print(line)
     print(f" SPORTSBALL DASHBOARD | {datetime.now():%Y-%m-%d %H:%M:%S}")
     print(line)
     total = stats["total_trades"]
-    success = stats["status_counts"].get("SUCCESS", 0)
+    settled = stats["status_counts"].get("WIN", 0) + stats["status_counts"].get("LOSS", 0)
     print("\n[SUMMARY]")
     print(f"  Trades recorded:        {total}")
-    print(f"  Execution success rate: {(success / total * 100 if total else 0):.2f}%")
+    print(f"  Settled (WIN+LOSS):     {settled}")
+    print(f"  Realized PnL:           {float(stats['realized_pnl']):+.4f} units")
     print(f"  Arbitrage opps locked:  {stats['arb_count']}")
-    print(f"  Avg risk per trade:     {float(stats['avg_risk']):.4f} units")
+    print(f"  Avg stake per trade:    {float(stats['avg_risk']):.4f} units")
     print("\n[MARKET BASELINE]")
-    print(f"  Historical games in DB: {stats['hist_count']}")
+    print(f"  Events in DB:           {stats['event_count']}")
     print(f"  Favorite hit rate:      {stats['favorite_hit_rate']:.2f}%  (the bar the model must beat)")
     print("\n[LATEST EXECUTIONS]")
-    print(f"{'Market ID':<24} | {'Odds':<8} | {'Size':<8} | {'Status':<10}")
-    print("-" * 60)
-    for m_id, odds, size, status, _ts in stats["latest_trades"]:
-        print(f"{m_id:<24} | {float(odds):<8.3f} | {float(size):<8.4f} | {status:<10}")
+    print(f"{'Market ID':<26} | {'Side':<4} | {'Odds':<7} | {'Size':<7} | {'Status':<8}")
+    print("-" * 64)
+    for market_id, side, odds, size, status in stats["latest"]:
+        print(f"{str(market_id):<26} | {side:<4} | {float(odds):<7.3f} | {float(size):<7.4f} | {status:<8}")
     print("\n" + line)
     print(" (Updating every 5s... Ctrl+C to exit)")
 

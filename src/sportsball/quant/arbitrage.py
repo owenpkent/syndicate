@@ -54,7 +54,7 @@ class ArbitrageEngine:
             "profit_margin": 1.0 - s,
             "arb_percent": s,
             "legs": [
-                {**book["Home"], "allocation": (1 / o_home) / s},
-                {**book["Away"], "allocation": (1 / o_away) / s},
+                {**book["Home"], "side": "HOME", "allocation": (1 / o_home) / s},
+                {**book["Away"], "side": "AWAY", "allocation": (1 / o_away) / s},
             ],
         }

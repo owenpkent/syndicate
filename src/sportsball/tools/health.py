@@ -31,7 +31,7 @@ def check(settings) -> bool:
     db = Database(settings.db)
     if db.available:
         print("[OK]   PostgreSQL reachable")
-        for table in ("market_history", "trade_history", "historical_results", "team_advanced_stats"):
+        for table in ("events", "signals", "trades", "team_advanced_stats"):
             try:
                 count = db.query_one(f"SELECT COUNT(*) FROM {table}")[0]
                 print(f"[INFO] {table:<22} {count} rows")
