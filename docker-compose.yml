@@ -79,6 +79,16 @@ services:
       - SETTLEMENT_INTERVAL=60
     command: ["sportsball-settlement"]
 
+  retrainer:
+    <<: *app
+    container_name: agent_retrainer
+    depends_on: [postgres]
+    environment:
+      - DB_HOST=postgres
+      - PYTHONUNBUFFERED=1
+      - RETRAIN_INTERVAL=86400
+    command: ["sportsball-retrainer"]
+
   dashboard:
     <<: *app
     container_name: sportsball_dashboard

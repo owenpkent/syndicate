@@ -8,7 +8,7 @@ PYTHON=./venv/bin/python3
 PIP=$(PYTHON) -m pip
 
 .PHONY: setup test dashboard health plot calibrate clv evaluate fetch-stats demo \
-        backtest backtest-viz optimize train shell
+        backtest backtest-viz optimize train retrain ingest-nba shell
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -35,6 +35,13 @@ optimize:
 
 train:
 	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.train
+
+retrain:
+	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.retrain
+
+# Free, no-API-key historical results from nba_api -> events (training data).
+ingest-nba:
+	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.ingest_nba
 
 # --- Visualizations & analysis (legacy scripts, Phase 2 will port these) ---
 plot:

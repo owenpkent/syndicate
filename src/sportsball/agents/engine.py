@@ -16,6 +16,7 @@ Two behaviors worth noting:
 """
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from ..broker import Broker, EXECUTION_SIGNALS, MARKET_SIGNALS
@@ -31,7 +32,16 @@ from ..store import HOME, Store, parse_market_id, side_for
 log = get_logger("engine")
 
 MODEL_DIR = "models"
+MODEL_FILE = os.path.join(MODEL_DIR, "win_prob_model.pkl")
 INFLIGHT = "market_signals:inflight"
+
+
+def _model_mtime() -> float:
+    """Modification time of the model file, or 0.0 if absent."""
+    try:
+        return os.path.getmtime(MODEL_FILE)
+    except OSError:
+        return 0.0
 
 
 def _teams(metadata: dict) -> Optional[tuple[str, str]]:
@@ -135,12 +145,19 @@ def run(settings: Settings) -> None:
     store = Store(Database(settings.db))
     store.db.connect()
     bundle = ModelBundle.load(MODEL_DIR)
+    model_mtime = _model_mtime()
     arb = ArbitrageEngine()
     strategy = settings.strategy
     log.info("Engine monitoring '%s' (EV buffer %.3f, require_model=%s)",
              MARKET_SIGNALS, strategy.safety_buffer_ev, strategy.require_model)
 
     for raw, data in broker.reliable_consume(MARKET_SIGNALS, INFLIGHT):
+        # Hot-reload the model if the retrainer has written a newer one.
+        current_mtime = _model_mtime()
+        if current_mtime > model_mtime:
+            log.info("Detected updated model; reloading.")
+            bundle = ModelBundle.load(MODEL_DIR) or bundle
+            model_mtime = current_mtime
         try:
             process_signal(data, bundle=bundle, store=store, broker=broker, arb=arb, strategy=strategy)
         except Exception as exc:  # noqa: BLE001 - never let one bad signal kill the loop

@@ -31,13 +31,16 @@ sportsball-scout = "sportsball.agents.scout:main"
 sportsball-engine = "sportsball.agents.engine:main"
 sportsball-sniper = "sportsball.agents.sniper:main"
 sportsball-settlement = "sportsball.agents.settlement:main"
+sportsball-retrainer = "sportsball.agents.retrainer:main"
 sportsball-dashboard = "sportsball.tools.dashboard:main"
 sportsball-health = "sportsball.tools.health:main"
 sportsball-clv = "sportsball.tools.clv:main"
 sportsball-evaluate = "sportsball.tools.evaluate:main"
 sportsball-train = "sportsball.pipelines.train:main"
 sportsball-optimize = "sportsball.pipelines.optimize:main"
+sportsball-retrain = "sportsball.pipelines.retrain:main"
 sportsball-backfill = "sportsball.pipelines.backfill:main"
+sportsball-ingest-nba = "sportsball.pipelines.ingest_nba:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

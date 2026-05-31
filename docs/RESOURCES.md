@@ -32,7 +32,7 @@ This document serves as the theoretical foundation for **Project Sportsball**. T
 
 ### Data & Execution
 *   **[The Rundown API v2](https://therundown.io/)**: Our primary source for sharp offshore market lines and historical results.
-*   **[Polymarket CLOB WebSocket](https://clob.polymarket.com/ws)**: The source for decentralized liquidity and prediction market microstructure.
+*   **[Polymarket Gamma API](https://gamma-api.polymarket.com/markets)** + **CLOB market channel** (`wss://ws-subscriptions-clob.polymarket.com/ws/market`): market discovery and live order-book feed for decentralized liquidity and prediction-market microstructure.
 
 ### Communities & Podcasts
 *   **"Circles Off" Podcast**: Expert-level discussion on high-stakes quantitative betting and steam tracking.

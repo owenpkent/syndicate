@@ -10,7 +10,7 @@ model see [SCHEMA.md](SCHEMA.md).
 
 ```bash
 cp .env.example .env          # then edit POSTGRES_PASSWORD (and RUNDOWN_API_KEY if live)
-docker compose up -d --build  # builds the single image, starts redis + postgres + 5 agents
+docker compose up -d --build  # builds the single image, starts redis + postgres + 6 agents
 docker compose logs -f        # watch the pipeline
 ```
 
@@ -30,24 +30,28 @@ make plot                     # equity curve from realized PnL -> data/plots/
 
 ## 2. Producing a real edge (the modeling loop)
 
-The Engine only trades on a model it trained — there is no edge out of the box.
+The Engine only trades on a model it trained — there is no edge out of the box,
+and it's only as good as the data behind it.
 
 ```bash
-# 1. Backfill finished games + closing lines (needs RUNDOWN_API_KEY)
-docker compose exec analytics_engine sportsball-backfill --managed
-# 2. Tune Elo hyperparameters by log-loss
-make optimize        # writes optimized_params.json
-# 3. Fit the win-probability model the Engine loads
-make train           # writes models/win_prob_model.pkl + current_ratings.json
-# 4. (optional) refresh NBA efficiency features
+# 1. Get DATA. Free, no API key — thousands of real NBA games from nba_api:
+make ingest-nba                       # -> events (FINAL, scores). Default: last 4 seasons.
+#    (Optional, needs RUNDOWN_API_KEY, adds closing lines for CLV:)
+#    docker compose exec analytics_engine sportsball-backfill --managed
+# 2. Tune Elo hyperparameters by log-loss, then fit the model:
+make retrain                          # = optimize + train (writes models/ + optimized_params.json)
+# 3. (optional) refresh NBA efficiency features for enrichment
 make fetch-stats
-# 5. Restart the Engine so it loads the new model
-docker compose restart analytics_engine
 ```
+
+The **Retrainer agent** runs step 2 on a schedule (`RETRAIN_INTERVAL`, default
+daily) and the Engine **hot-reloads** the new model automatically — no restart
+needed. Run it manually with `make retrain` after a fresh `make ingest-nba`.
 
 Validate before trusting it: `make backtest-viz` (walk-forward equity curve) and
 `make evaluate` (Brier < 0.25 is competitive). `make clv` after live paper
-trading is the truest edge signal.
+trading is the truest edge signal — note it needs a closing-line source
+(Rundown backfill), since the free NBA ingest stores scores only.
 
 ---
 
@@ -86,7 +90,8 @@ rather than dropping the volume.
 | `relation "events" does not exist` | Old volume with the pre-v0.2 schema | Reset the DB (§4) |
 | `psycopg2 … password authentication failed` | `.env` password ≠ the one baked into the existing volume | Reset the DB (§4) or align `POSTGRES_PASSWORD` |
 | Dashboard / CLV say "no data" | No settled trades yet | `make demo`, or let the pipeline + settlement run |
-| Scout connects but emits nothing | Placeholder `assets_ids` (Phase 3) | Set `SCOUT_ASSET_IDS` to real Polymarket asset ids |
+| Scout connects but emits nothing | Gamma discovery returned no tradable tokens, or markets are quiet | Set `SCOUT_ASSET_IDS` to specific token ids, or raise `SCOUT_DISCOVERY_LIMIT` |
+| Engine `[ABSTAIN]` even after training | Model trained on too little data | `make ingest-nba` (free NBA history) then `make retrain` |
 | `make test` import errors | Package not installed in venv | `make setup` (or `pip install -e ".[tools]"`) |
 
 ---

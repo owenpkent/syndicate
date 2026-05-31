@@ -16,6 +16,7 @@ import requests
 from ..broker import Broker, MARKET_SIGNALS
 from ..config import Settings, load_settings
 from ..logging_conf import get_logger
+from ..matching import canonical_event_id
 from ..quant.odds import american_to_decimal
 
 log = get_logger("oracle")
@@ -28,16 +29,21 @@ def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def build_signal(source: str, event_id: str, away: str, home: str,
-                 participant: str, decimal_odds: float, affiliate_id: str) -> dict:
-    """Construct a schema-compliant market signal (see docs/ARCHITECTURE.md §4.2)."""
+def build_signal(source: str, sport: str, when: str, away: str, home: str,
+                 participant: str, decimal_odds: float, affiliate_id: str = "?") -> dict:
+    """Construct a schema-compliant market signal (see docs/ARCHITECTURE.md §4.2).
+
+    The event segment of ``market_id`` is a *canonical* event id derived from
+    (sport, date, teams), so signals for the same game from any venue — and the
+    backfilled/ingested result — collapse onto one ``event_id``.
+    """
+    event_id = canonical_event_id(sport, when, away, home)
     return {
         "market_id": f"{source}-{event_id}-{participant}",
         "odds": decimal_odds,
         "metadata": {
-            "source": source,
-            "matchup": f"{away} @ {home}",
-            "participant": participant,
+            "source": source, "sport": sport, "event_id": event_id,
+            "matchup": f"{away} @ {home}", "participant": participant,
             "affiliate_id": affiliate_id,
         },
     }
@@ -55,7 +61,7 @@ def fetch_rundown_markets(api_key: str) -> list[dict] | None:
 
     signals: list[dict] = []
     for event in events:
-        event_id = event.get("event_id")
+        event_date = (event.get("event_date") or _today())[:10]
         teams = event.get("teams", [])
         home = next((t["name"] for t in teams if not t.get("is_away")), "Home")
         away = next((t["name"] for t in teams if t.get("is_away")), "Away")
@@ -74,7 +80,7 @@ def fetch_rundown_markets(api_key: str) -> list[dict] | None:
             if not american or american == 0.0001:  # off-board sentinel
                 continue
             signals.append(build_signal(
-                "RUNDOWN", event_id, away, home, participant["name"],
+                "RUNDOWN", "nba", event_date, away, home, participant["name"],
                 american_to_decimal(american), aff,
             ))
     return signals
@@ -84,17 +90,18 @@ def fetch_mock_lines() -> list[dict]:
     """Deterministic mock slate (no randomness) for offline runs.
 
     Each game emits both sides so the arbitrage book has two participants to
-    compare. ``games`` is (event_id, away, home, away_odds, home_odds).
+    compare. ``games`` is (away, home, away_odds, home_odds).
     """
     log.info("Oracle: using mock mode (no live key).")
+    today = _today()
     games = [
-        ("MOCK-001", "Lakers", "Celtics", 2.10, 1.80),
-        ("MOCK-002", "Warriors", "Nets", 1.95, 1.95),
+        ("Lakers", "Celtics", 2.10, 1.80),
+        ("Warriors", "Nets", 1.95, 1.95),
     ]
     signals: list[dict] = []
-    for event_id, away, home, away_odds, home_odds in games:
-        signals.append(build_signal("MOCK", event_id, away, home, away, away_odds, "mock"))
-        signals.append(build_signal("MOCK", event_id, away, home, home, home_odds, "mock"))
+    for away, home, away_odds, home_odds in games:
+        signals.append(build_signal("MOCK", "nba", today, away, home, away, away_odds))
+        signals.append(build_signal("MOCK", "nba", today, away, home, home, home_odds))
     return signals
 
 

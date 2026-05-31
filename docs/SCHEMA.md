@@ -47,7 +47,7 @@ results feed.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `event_id` | TEXT PK | Venue event id (e.g. The Rundown's). Shared across producers for the same game. |
+| `event_id` | TEXT PK | **Canonical** id from `matching.canonical_event_id(sport, date, teams)`, e.g. `nba_20240115_lakers_at_celtics`. Venue-independent so the Oracle, backfill, NBA ingester, and Scout collapse the same game onto one row. |
 | `sport_id` | INT | NBA=4, NFL=2, MLB=1, NHL=6 |
 | `event_date` | TIMESTAMPTZ | |
 | `home_team`, `away_team` | TEXT | |

@@ -15,10 +15,13 @@ import requests
 from ..config import load_settings
 from ..db import Database
 from ..logging_conf import get_logger
+from ..matching import canonical_event_id
 from ..quant.odds import american_to_decimal
 from ..store import Store
 
 log = get_logger("backfill")
+
+SPORT_NAMES = {4: "nba", 2: "nfl", 1: "mlb", 6: "nhl"}
 
 # Preset slates for --managed mode: (sport_id, start, end). NBA=4 NFL=2 MLB=1 NHL=6
 MANAGED_SLATES = [
@@ -67,7 +70,10 @@ def scrape_date(date_str: str, sport_id: int, api_key: str, retries: int = 3) ->
                 away = next((t for t in teams if t.get("is_away")), {}).get("name")
                 ml = next((m for m in event.get("markets", []) if m.get("market_id") == 1), None)
                 home_odds, away_odds = _side_odds(home, away, ml.get("participants", [])) if ml else (0.0, 0.0)
-                records.append((event.get("event_id"), sport_id, event.get("event_date"),
+                event_date = event.get("event_date")
+                sport = SPORT_NAMES.get(sport_id, str(sport_id))
+                eid = canonical_event_id(sport, event_date or date_str, away, home)
+                records.append((eid, sport_id, event_date,
                                 home, away, score.get("score_home"), score.get("score_away"),
                                 home_odds, away_odds))
             return records

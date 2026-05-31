@@ -91,6 +91,9 @@ class Settings:
     settlement_interval: int = field(
         default_factory=lambda: int(_env("SETTLEMENT_INTERVAL", "60"))
     )
+    retrain_interval: int = field(
+        default_factory=lambda: int(_env("RETRAIN_INTERVAL", "86400"))  # daily
+    )
     rundown_api_key: str | None = field(
         default_factory=lambda: os.getenv("RUNDOWN_API_KEY")
     )

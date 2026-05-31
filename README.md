@@ -31,6 +31,17 @@ docker compose up -d --build
 *   **CLI Dashboard:** `make dashboard`
 *   **Performance Charts:** `make plot` (PnL) or `make calibrate` (Model Accuracy)
 
+### 4. Get Data & Train a Model
+The Engine abstains until it has a trained model. Load **real NBA history for
+free (no API key)** and train:
+```bash
+make ingest-nba   # thousands of real games from nba_api -> events
+make retrain      # optimize Elo params + fit the win-probability model
+```
+The Retrainer agent then keeps the model fresh on a schedule, and the Engine
+hot-reloads it. (For closing-line value, add `sportsball-backfill` with a
+`RUNDOWN_API_KEY`.)
+
 ---
 
 ## ─── Performance Visualization ───
@@ -115,11 +126,12 @@ image; each agent is a console entrypoint (`sportsball-oracle`, `-engine`, …).
 ├── data/                              # Persistent volumes (git-ignored)
 ├── Dockerfile                         # Single base image for all roles
 ├── [src/sportsball/](src/sportsball/)             # The package
-│   ├── config.py · db.py · broker.py · store.py · logging_conf.py  # Infra + repository layer
+│   ├── config.py · db.py · broker.py · store.py · matching.py · logging_conf.py  # Infra + repository
 │   ├── [quant/](src/sportsball/quant/)            # Pure math: odds, poisson, models, arbitrage, portfolio
-│   ├── [agents/](src/sportsball/agents/)          # oracle · scout · engine · sniper · settlement
-│   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · backfill (run on demand)
-│   └── [tools/](src/sportsball/tools/)            # dashboard · health
+│   ├── [markets/](src/sportsball/markets/)        # Polymarket Gamma discovery
+│   ├── [agents/](src/sportsball/agents/)          # oracle · scout · engine · sniper · settlement · retrainer
+│   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · retrain · backfill · ingest_nba
+│   └── [tools/](src/sportsball/tools/)            # dashboard · health · clv · evaluate
 ├── [scripts/](scripts/)               # Host visualizations & stats enrichment
 └── [tests/](tests/)                   # Unit suite (71 tests) + backtest pipeline
 ```

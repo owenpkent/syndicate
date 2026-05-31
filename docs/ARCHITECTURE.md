@@ -38,9 +38,11 @@ The system uses **Redis** as a high-speed message broker to decouple the agents.
 *   Publishes to Redis.
 
 ### Scout Agent (The Watcher)
-*   Maintains low-latency WebSocket connections to decentralized order books (e.g., Polymarket).
-*   Tracks liquidity and bid/ask spreads in real-time.
-*   Translates order book mid-prices into implied probabilities.
+*   Discovers live markets via the Polymarket **Gamma API** (`markets/polymarket.py`)
+    and subscribes to the **CLOB market channel** WebSocket for their token ids.
+*   Parses `book` messages (best bid/ask) into implied probabilities and signals.
+*   Override discovery with `SCOUT_ASSET_IDS`. (Live socket behavior is verified
+    against Polymarket's documented shapes but not exercised in CI — see §5.)
 
 ### Analytics Engine (The Brain)
 *   Subscribes to all `market_signals`.
@@ -65,7 +67,7 @@ The system uses **Redis** as a high-speed message broker to decouple the agents.
 
 ## 3. Infrastructure & Persistence
 
-*   **Docker Orchestration:** Isolated runtimes for all 5 agents + 2 infrastructure services (Redis/Postgres).
+*   **Docker Orchestration:** Isolated runtimes for all 6 agents (oracle, scout, engine, sniper, settlement, retrainer) + 2 infrastructure services (Redis/Postgres), all from one image.
 *   **Persistence Layer (PostgreSQL):** normalized around `event_id` foreign
     keys — see [SCHEMA.md](SCHEMA.md) for the full model.
     *   `events`: one row per game (SCHEDULED stub → FINAL with scores + closing lines).
@@ -168,15 +170,30 @@ weaknesses; the rest are tracked as the roadmap.
   `event_id` foreign keys replaced the fragile `LIKE '%' || event_id || '%'`
   substring matching. All SQL lives in one repository layer (`sportsball.store`).
 
-**Still open (roadmap — Phase 3)**
+**Addressed in v0.3**
 
-1. **Scout uses placeholder subscriptions.** `assets_ids: ["123456","789012"]`
-   are not real Polymarket markets. Resolve live `asset_ids` via the Gamma API
-   (override today with `SCOUT_ASSET_IDS`).
-2. **Cross-venue arbitrage is sim-only.** The book fills both legs only when two
-   venues publish the same `event_id` with `Home`/`Away` types; the live Scout
-   doesn't emit that shape yet, so real cross-venue arbs await live data.
-3. **No automated retraining loop.** The modeling pipeline (optimize → train) is
-   run manually; a scheduled retrain on fresh backfill would keep ratings current.
+* ✅ **Live Polymarket discovery.** The Scout resolves real CLOB token ids via the
+  Gamma API and subscribes to the live market channel (`markets/polymarket.py`,
+  `agents/scout.py`), parsing real `book` messages.
+* ✅ **Canonical event ids.** `matching.canonical_event_id` derives a
+  venue-independent id from (sport, date, teams) so the Oracle, backfill, and the
+  free NBA ingester all collapse the same game onto one `event_id` — the
+  mechanism that makes cross-venue settlement and arbitrage possible.
+* ✅ **Free training data.** `sportsball-ingest-nba` pulls every regular-season
+  NBA result from `nba_api` (no key) into `events`, so the model trains on
+  thousands of real games rather than a thin slate.
+* ✅ **Automated retraining.** The Retrainer agent runs optimize→train on a
+  schedule and the Engine hot-reloads the new model on its next loop iteration.
 
-Contributions that close any of these are welcome.
+**Still open / caveats**
+
+1. **Live integrations are unit-tested, not live-validated.** Gamma/CLOB parsing
+   matches Polymarket's documented shapes and `nba_api` row shapes, but the live
+   socket and `stats.nba.com` calls aren't exercised in CI. Validate against the
+   real endpoints before relying on them.
+2. **Cross-venue arbitrage needs parseable sports markets.** Two venues only
+   align when both produce the same canonical `event_id`. Polymarket's Gamma
+   metadata for sports markets is inconsistent, so reliably extracting
+   (date, teams) from a Polymarket market remains best-effort.
+
+Contributions that close these are welcome.
