@@ -30,6 +30,8 @@ services:
     container_name: agent_oracle
     depends_on:
       - redis
+    env_file:
+      - .env
     environment:
       - REDIS_HOST=redis
       - PYTHONUNBUFFERED=1
