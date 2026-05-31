@@ -4,6 +4,13 @@ import json
 import redis
 import psycopg2
 from math_utils import calculate_ev, calculate_kelly_fraction
+from advanced_models import LogisticWinProbability, MonteCarloPricer
+
+# Example of Advanced Model Initialization
+# In production, this would load a pre-trained model file from /app/models
+win_prob_model = LogisticWinProbability()
+# Dummy training to illustrate functionality; in production, this would be a loaded state
+win_prob_model.train([[1500, 1400], [1400, 1500], [1600, 1500]], [1, 0, 1])
 
 def load_settings():
     # In a real container, we'd mount this or use env vars
@@ -53,9 +60,16 @@ def main():
         if signal:
             try:
                 data = json.loads(signal)
-                true_prob = data.get("true_prob")
                 odds = data.get("odds")
                 market_id = data.get("market_id", "unknown")
+
+                # ADVANCED QUANT PATH:
+                # If the signal contains raw stats instead of a pre-calculated probability,
+                # we use our logistic model to derive the true probability.
+                if "raw_stats" in data:
+                    true_prob = win_prob_model.predict_prob(data["raw_stats"])
+                else:
+                    true_prob = data.get("true_prob")
 
                 ev = calculate_ev(true_prob, odds)
 
@@ -65,7 +79,7 @@ def main():
                         with conn.cursor() as cur:
                             cur.execute(
                                 "INSERT INTO market_history (market_id, odds, true_prob, ev) VALUES (%s, %s, %s, %s)",
-                                (market_id, odds, true_prob, ev)
+                                (market_id, float(odds), float(true_prob), float(ev))
                             )
                         conn.commit()
                     except Exception as e:
