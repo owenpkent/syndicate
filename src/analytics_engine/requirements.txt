@@ -1,7 +1,0 @@
-redis
-psycopg2-binary
-numpy
-scipy
-scikit-learn
-requests
-matplotlib

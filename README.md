@@ -102,28 +102,34 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full signal lifecyc
 
 ## ─── Directory Structure ───
 
+Everything is one installable Python package (`sportsball`) with a single Docker
+image; each agent is a console entrypoint (`sportsball-oracle`, `-engine`, …).
+
 ```text
 .
 ├── [docs/](docs/)                     # Deep-dive documentation wiki
-├── [config/](config/)                 # Global parameters & DB init scripts
+├── [config/](config/)                 # settings.json (strategy params) & init.sql (schema)
+├── models/                            # Trained model + Elo ratings (loaded by the Engine)
 ├── data/                              # Persistent volumes (git-ignored)
-├── [src/](src/)                       # Micro-agent source code
-│   ├── [analytics_engine/](src/analytics_engine/)     # Mathematical modeling (SciPy/Sklearn)
-│   ├── [oracle_agent/](src/oracle_agent/)             # Data scrapers & ingestion
-│   ├── [scout_agent/](src/scout_agent/)               # WebSocket market watchers
-│   ├── [sniper_agent/](src/sniper_agent/)             # Order execution & paper logs
-│   └── [dashboard.py](src/dashboard.py)               # Real-time performance UI
-└── [tests/](tests/)                   # Simulation & backtesting suite
+├── Dockerfile                         # Single base image for all roles
+├── [src/sportsball/](src/sportsball/)             # The package
+│   ├── config.py · db.py · broker.py · logging_conf.py   # Infrastructure layer
+│   ├── [quant/](src/sportsball/quant/)            # Pure math: odds, poisson, models, arbitrage, portfolio
+│   ├── [agents/](src/sportsball/agents/)          # oracle · scout · engine · sniper · settlement
+│   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · backfill (run on demand)
+│   └── [tools/](src/sportsball/tools/)            # dashboard · health
+├── [scripts/](scripts/)               # Host visualizations & stats enrichment
+└── [tests/](tests/)                   # Unit suite (63 tests) + backtest pipeline
 ```
 
 ---
 
 ## ─── Core Modules ───
 
-*   **[Analytics Engine](src/analytics_engine/main.py)**: The central processing loop coordinating model prediction and risk management.
-*   **[Arbitrage Logic](src/analytics_engine/arbitrage_engine.py)**: Real-time cross-venue discrepancy detection.
-*   **[Portfolio Manager](src/analytics_engine/portfolio_manager.py)**: Global exposure and correlation guards.
-*   **[Model Trainer](src/analytics_engine/model_trainer.py)**: Automated Logistic Regression and Elo training pipeline.
+*   **[Analytics Engine](src/sportsball/agents/engine.py)**: Consumes signals, models win probability, prices EV, sizes with Kelly, and gates on portfolio risk. Abstains when it has no trained model.
+*   **[Arbitrage Logic](src/sportsball/quant/arbitrage.py)**: Real-time cross-venue discrepancy detection.
+*   **[Portfolio Manager](src/sportsball/quant/portfolio.py)**: Global exposure and correlation guards.
+*   **[Training Pipeline](src/sportsball/pipelines/train.py)**: Walk-forward Elo + Logistic Regression, writing the model the Engine loads.
 *   **[Backtest Pipeline](tests/backtest_pipeline.py)**: Historical simulation and strategy validation engine.
 
 ---

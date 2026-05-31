@@ -1,11 +1,12 @@
 """Pytest configuration.
 
-Puts the Analytics Engine source directory on the import path so the unit
-tests can import the math/arbitrage modules directly without a running
-container or a configured PYTHONPATH.
+Puts the package ``src/`` directory on the import path so the suite runs
+whether or not ``sportsball`` has been ``pip install``-ed (editable). This keeps
+``pytest`` working straight from a fresh checkout.
 """
 import os
 import sys
 
-ENGINE_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "src", "analytics_engine")
-sys.path.insert(0, os.path.abspath(ENGINE_DIR))
+SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "src"))
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)

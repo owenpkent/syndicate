@@ -1,12 +1,8 @@
 import json
 import argparse
-import sys
 import os
 
-# Add /app to path to reuse math logic
-sys.path.append('/app')
-
-from math_utils import calculate_ev, calculate_kelly_fraction
+from sportsball.quant.odds import calculate_ev, calculate_kelly_fraction
 
 def run_backtest(data_file, initial_bankroll, ev_buffer, kelly_multiplier):
     print(f"--- Starting Backtest ---")

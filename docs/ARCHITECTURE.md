@@ -136,30 +136,37 @@ Every Oracle/Scout producer **must** emit this shape onto `market_signals`:
 ## 5. Known Limitations
 
 This is a **paper-trading research and demonstration environment**, not a
-live-capital trading system. The design makes several deliberate (and a few
-incidental) trade-offs that any contributor should understand before extending it:
+live-capital trading system. The v0.2 overhaul closed several of the original
+weaknesses; the rest are tracked as the roadmap.
 
-1. **Probabilities are not yet a real edge.** When no trained model is loaded,
-   the Oracle fills `true_prob` with `random.uniform(0.45, 0.60)`. EV computed
-   from a random probability is noise. Real alpha requires a trained model
-   (`model_trainer.py`) **and** a calibrated feature pipeline.
-2. **String-coupled identifiers.** Event/team identity is recovered by splitting
-   `market_id` on `-` and `LIKE '%' || event_id || '%'` joins. This is fragile
-   (a numeric event id like `1` matches many rows) and `O(n²)`. A normalized
-   `events` table with foreign keys is the correct fix.
-3. **List queue, not Streams.** No consumer groups, acks, or replay — a crash
-   mid-processing drops the in-flight signal. Fine for simulation; insufficient
-   for production.
-4. **`active_trades` never expires.** The Sniper accumulates exposure in the
-   `active_trades` hash with no settlement-driven cleanup, so the global-exposure
-   guard eventually rejects everything. A reaper keyed to settled trades is needed.
-5. **Scout uses placeholder subscriptions.** `assets_ids: ["123456", "789012"]`
-   are not real Polymarket markets, and the message schema is illustrative. The
-   Scout connects but will not produce live signals without real asset ids.
-6. **Single-source arbitrage.** The arbitrage book only fills both legs when two
-   venues publish the **same** `event_id` with `Home`/`Away` participant types.
-   The Scout (Polymarket) does not currently emit that shape, so cross-venue arbs
-   will not trigger end-to-end yet.
+**Resolved in v0.2**
 
-These are tracked as the project roadmap; contributions that close any of them
-are welcome.
+* ✅ **No more trading on noise.** The Oracle no longer invents a `true_prob`;
+  the Engine derives probability only from a trained `ModelBundle` and
+  **abstains** (logs, never stakes) when no model is loaded
+  (`strategy.require_model`).
+* ✅ **Reliable queue.** Consumers use `BRPOPLPUSH` into a per-consumer in-flight
+  list with explicit `ack`, so a crash mid-processing recovers the message
+  instead of dropping it (`sportsball.broker.Broker.reliable_consume`).
+* ✅ **Exposure reaper.** The Settlement Agent clears a position's entry from the
+  `active_trades` hash when it settles, so the global-exposure guard no longer
+  silently ratchets shut.
+* ✅ **Real health check.** `sportsball-health` probes Redis/Postgres and reports
+  queue depth, exposure, and row counts (and exits non-zero when degraded)
+  instead of always printing `[OK]`.
+* ✅ **One image, no duplication.** A single package + Docker image replaced the
+  five copy-pasted agents and the 14 hardcoded DB-credential blocks.
+
+**Still open (roadmap)**
+
+1. **String-coupled identifiers.** Event/team identity is still recovered by
+   splitting `market_id` on `-` and `LIKE '%' || event_id || '%'` joins —
+   fragile and `O(n²)`. *Phase 2:* a normalized `events` table with foreign keys.
+2. **Scout uses placeholder subscriptions.** `assets_ids: ["123456","789012"]`
+   are not real Polymarket markets. *Phase 3:* resolve live `asset_ids` via the
+   Gamma API (override today with `SCOUT_ASSET_IDS`).
+3. **Cross-venue arbitrage is sim-only.** The book fills both legs only when two
+   venues publish the same `event_id` with `Home`/`Away` types; the live Scout
+   doesn't emit that shape yet, so real cross-venue arbs await Phase 3.
+
+Contributions that close any of these are welcome.

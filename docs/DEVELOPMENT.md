@@ -91,7 +91,18 @@ make health
 Populates the database with multi-sport, multi-season history from The Rundown.
 
 ```bash
-docker exec agent_engine python backfill_manager.py
+docker exec agent_engine sportsball-backfill --managed
+# or a single range:
+docker exec agent_engine sportsball-backfill --start 2023-10-24 --end 2024-04-14 --sport 4
+```
+
+### Training the Model
+Once history is backfilled, optimize Elo params then train the win-probability
+model the Engine loads (writes to `models/`):
+
+```bash
+make optimize   # tunes K-factor + home-field advantage by log-loss
+make train      # fits logistic regression on the Elo walk-forward
 ```
 
 ### NBA Advanced Stats Fetcher
@@ -114,11 +125,14 @@ make demo
 This populates the database with 500 matched games and trades.
 
 ### Adding a New Oracle Scraper
-1.  Add your API logic to `src/oracle_agent/main.py`.
-2.  Ensure your data is normalized to the `market_signal` schema.
-3.  Restart the agent: `docker compose restart oracle_agent`.
+1.  Add your API logic to `src/sportsball/agents/oracle.py` (or a new producer).
+2.  Emit the `market_signal` schema via `build_signal(...)` — see docs/ARCHITECTURE.md §4.2.
+3.  Rebuild and restart: `docker compose up -d --build oracle_agent`.
 
 ### Modifying the Math Engine
-1.  Core math utilities are in `src/analytics_engine/math_utils.py` and `advanced_models.py`.
-2.  Changes take effect immediately on agent restart due to Docker volume mounts.
-3.  **Always** run `make backtest-viz` after modifying the math core to verify the PnL impact.
+1.  Pure quant primitives live in `src/sportsball/quant/` (`odds.py`, `poisson.py`,
+    `models.py`, `arbitrage.py`, `portfolio.py`).
+2.  **Add a unit test** under `tests/` and run `make test` — the math layer is
+    fully covered and has no DB/network dependencies.
+3.  Run `make backtest` (and `make backtest-viz` once you have history) to check
+    the PnL impact before rebuilding the image.

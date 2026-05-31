@@ -1,3 +1,22 @@
+# Sportsball — "cluster in a box". One image, many roles.
+#
+# All agents share a single build (x-app anchor); each service just overrides
+# the command with its console entrypoint. Credentials come from .env.
+
+x-app: &app
+  build: .
+  image: sportsball:local
+  env_file:
+    - .env
+  environment:
+    - REDIS_HOST=redis
+    - DB_HOST=postgres
+    - PYTHONUNBUFFERED=1
+  volumes:
+    - ./config:/app/config
+    - ./models:/app/models
+  restart: always
+
 services:
   redis:
     image: redis:7-alpine
@@ -26,112 +45,43 @@ services:
     restart: unless-stopped
 
   oracle_agent:
-    build: ./src/oracle_agent
-    image: sportsball-oracle_agent
+    <<: *app
     container_name: agent_oracle
-    depends_on:
-      - redis
-    env_file:
-      - .env
-    environment:
-      - REDIS_HOST=redis
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ./config:/app/config
-      - ./src/oracle_agent:/app
-    restart: always
+    depends_on: [redis]
+    command: ["sportsball-oracle"]
 
   scout_agent:
-    build: ./src/scout_agent
-    image: sportsball-scout_agent
+    <<: *app
     container_name: agent_scout
-    depends_on:
-      - redis
-    environment:
-      - REDIS_HOST=redis
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ./config:/app/config
-      - ./src/scout_agent:/app
-    restart: always
+    depends_on: [redis]
+    command: ["sportsball-scout"]
 
   analytics_engine:
-    build: ./src/analytics_engine
-    image: sportsball-analytics_engine
+    <<: *app
     container_name: agent_engine
-    depends_on:
-      - redis
-      - postgres
-    env_file:
-      - .env
-    environment:
-      - REDIS_HOST=redis
-      - DB_HOST=postgres
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ./config:/app/config
-      - ./src/analytics_engine:/app
-      - ./tests:/app/tests
-    restart: always
+    depends_on: [redis, postgres]
+    command: ["sportsball-engine"]
 
   sniper_agent:
-    build: ./src/sniper_agent
-    image: sportsball-sniper_agent
+    <<: *app
     container_name: agent_sniper
-    depends_on:
-      - redis
-    env_file:
-      - .env
-    environment:
-      - REDIS_HOST=redis
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ./config:/app/config
-      - ./src/sniper_agent:/app
-    restart: always
-
-  dashboard:
-    image: sportsball-sniper_agent
-    container_name: sportsball_dashboard
-    depends_on:
-      - postgres
-    env_file:
-      - .env
-    environment:
-      - DB_HOST=postgres
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ./src:/app
-    command: ["python", "dashboard.py"]
-    restart: always
+    depends_on: [redis, postgres]
+    command: ["sportsball-sniper"]
 
   settlement_agent:
-    build: ./src/settlement_agent
-    image: sportsball-settlement_agent
+    <<: *app
     container_name: agent_settlement
-    depends_on:
-      - postgres
-    env_file:
-      - .env
+    depends_on: [redis, postgres]
     environment:
+      - REDIS_HOST=redis
       - DB_HOST=postgres
       - PYTHONUNBUFFERED=1
       - SETTLEMENT_INTERVAL=60
-    volumes:
-      - ./src/settlement_agent:/app
-    restart: always
+    command: ["sportsball-settlement"]
 
-  visualizer:
-    image: sportsball-analytics_engine
-    container_name: sportsball_visualizer
-    depends_on:
-      - postgres
-    environment:
-      - DB_HOST=postgres
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ./scripts:/app/scripts
-      - ./data/plots:/app/plots
-    working_dir: /app/plots
-    command: ["python", "/app/scripts/visualize_pnl.py"]
+  dashboard:
+    <<: *app
+    container_name: sportsball_dashboard
+    depends_on: [postgres]
     restart: "no"
+    command: ["sportsball-dashboard"]
