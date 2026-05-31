@@ -11,7 +11,7 @@ def get_db_connection():
     return psycopg2.connect(
         host=os.getenv("DB_HOST", "postgres"),
         database="market_history",
-        user="syndicate_admin",
+        user="sportsball_admin",
         password="changeme_in_env"
     )
 

@@ -1,4 +1,4 @@
-# Project Syndicate Tooling
+# Project Sportsball Tooling
 
 PYTHON=./venv/bin/python3
 PIP=./venv/bin/pip
@@ -53,4 +53,4 @@ backtest:
 
 shell:
 	@echo "Entering Postgres Shell..."
-	docker exec -it syndicate_db psql -U syndicate_admin -d market_history
+	docker exec -it sportsball_db psql -U sportsball_admin -d market_history

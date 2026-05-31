@@ -4,7 +4,7 @@ import json
 import time
 
 def monitor_system():
-    print("--- Syndicate System Health Check ---")
+    print("--- Sportsball System Health Check ---")
     redis_host = os.getenv("REDIS_HOST", "localhost")
     try:
         r = redis.Redis(host=redis_host, port=6379, db=0, decode_responses=True)

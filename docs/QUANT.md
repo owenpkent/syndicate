@@ -1,6 +1,6 @@
-# Quantitative Handbook: Project Syndicate
+# Quantitative Handbook: Project Sportsball
 
-This document provides a deep dive into the mathematical and statistical foundations of the Syndicate's trading logic.
+This document provides a deep dive into the mathematical and statistical foundations of the Sportsball's trading logic.
 
 ---
 
@@ -65,7 +65,7 @@ The engine aggregates these into a joint matrix to evaluate spreads and total li
 
 ## 4. Cross-Market Arbitrage
 
-Beyond statistical edge ($EV$), the Syndicate detects mathematical "lock" opportunities where discrepancies between venues allow for guaranteed profit.
+Beyond statistical edge ($EV$), the Sportsball detects mathematical "lock" opportunities where discrepancies between venues allow for guaranteed profit.
 
 ### The Arbitrage Equation
 An opportunity exists when the sum of the implied probabilities for all mutually exclusive outcomes of an event is less than 1.0:

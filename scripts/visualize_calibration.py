@@ -7,7 +7,7 @@ def get_db_connection():
     return psycopg2.connect(
         host=os.getenv("DB_HOST", "localhost"),
         database="market_history",
-        user="syndicate_admin",
+        user="sportsball_admin",
         password="changeme_in_env"
     )
 
@@ -54,7 +54,7 @@ def plot_calibration():
 
             plt.figure(figsize=(8, 8))
             plt.plot([0, 1], [0, 1], 'k--', label="Perfect Calibration")
-            plt.plot(bin_means, bin_actuals, 's-', label="Syndicate Model")
+            plt.plot(bin_means, bin_actuals, 's-', label="Sportsball Model")
             plt.title("Model Calibration: Predicted vs Actual Win Rate")
             plt.xlabel("Predicted Win Probability")
             plt.ylabel("Actual Win Rate")

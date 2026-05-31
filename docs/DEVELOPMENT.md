@@ -1,6 +1,6 @@
-# Developer Guide: Project Syndicate
+# Developer Guide: Project Sportsball
 
-This guide explains how to extend, monitor, and validate the Syndicate's performance using the provided developer tooling.
+This guide explains how to extend, monitor, and validate the Sportsball's performance using the provided developer tooling.
 
 ---
 
@@ -37,7 +37,7 @@ make backtest
 ## 3. Performance Monitoring
 
 ### CLI Dashboard
-Syndicate includes a built-in real-time dashboard.
+Sportsball includes a built-in real-time dashboard.
 
 ```bash
 make dashboard

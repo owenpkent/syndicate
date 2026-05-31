@@ -7,7 +7,7 @@ def get_db_connection():
     return psycopg2.connect(
         host=os.getenv("DB_HOST", "localhost"),
         database="market_history",
-        user="syndicate_admin",
+        user="sportsball_admin",
         password="changeme_in_env"
     )
 
@@ -62,7 +62,7 @@ def fetch_stats():
 def display_dashboard(stats):
     clear_screen()
     print("="*60)
-    print(f" SYNDICATE PERFORMANCE DASHBOARD | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f" SPORTSBALL PERFORMANCE DASHBOARD | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
     
     print(f"\n[SUMMARY]")

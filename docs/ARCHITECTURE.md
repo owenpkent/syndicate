@@ -1,6 +1,6 @@
-# System Architecture: Project Syndicate
+# System Architecture: Project Sportsball
 
-Syndicate is designed as a **"Cluster in a Box"**—a distributed system of micro-agents orchestrated via Docker, optimized for low-latency market analysis and execution.
+Sportsball is designed as a **"Cluster in a Box"**—a distributed system of micro-agents orchestrated via Docker, optimized for low-latency market analysis and execution.
 
 ---
 

@@ -71,7 +71,7 @@ def run_backtest(data_file, initial_bankroll, ev_buffer, kelly_multiplier):
     print(f"Average EV:       {(total_ev/trades_executed if trades_executed > 0 else 0):.4f}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Syndicate Backtesting Engine")
+    parser = argparse.ArgumentParser(description="Sportsball Backtesting Engine")
     parser.add_argument("--input", default="tests/mock_ticks.json", help="Path to tick data")
     parser.add_argument("--bankroll", type=float, default=1000.0, help="Starting capital")
     parser.add_argument("--buffer", type=float, default=0.02, help="EV safety buffer")
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     
     # Check if file exists relative to execution point
     input_path = args.input
-    if not os.path.exists(input_path) and os.path.exists(os.path.join("syndicate", input_path)):
-        input_path = os.path.join("syndicate", input_path)
+    if not os.path.exists(input_path) and os.path.exists(os.path.join("sportsball", input_path)):
+        input_path = os.path.join("sportsball", input_path)
 
     run_backtest(input_path, args.bankroll, args.buffer, args.kelly)

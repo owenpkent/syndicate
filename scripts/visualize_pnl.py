@@ -7,7 +7,7 @@ def get_db_connection():
     return psycopg2.connect(
         host=os.getenv("DB_HOST", "localhost"),
         database="market_history",
-        user="syndicate_admin",
+        user="sportsball_admin",
         password="changeme_in_env"
     )
 
@@ -51,7 +51,7 @@ def plot_pnl():
 
             plt.figure(figsize=(10, 6))
             plt.plot(bankroll, marker='o', linestyle='-', color='b')
-            plt.title("Syndicate Cumulative PnL (Equity Curve)")
+            plt.title("Sportsball Cumulative PnL (Equity Curve)")
             plt.xlabel("Trade Sequence")
             plt.ylabel("Bankroll (Units)")
             plt.grid(True)

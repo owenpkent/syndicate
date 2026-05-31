@@ -1,11 +1,11 @@
-# Autonomous Sports Analytics Syndicate (Project: Syndicate)
+# Sportsball: Autonomous Sports Analytics
 
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/owenpkent/syndicate)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/owenpkent/sportsball)
 [![Python Version](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-blue)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An autonomous, distributed-agent quantitative trading pipeline and validation environment. Optimized for high-performance headless servers, this system orchestrates an ensemble of specialized micro-agents to ingest sports data, calculate real-time expected value ($EV$), detect cross-market arbitrage opportunities, and execute optimized capital allocations.
+Sportsball is an autonomous, distributed-agent quantitative trading pipeline and validation environment. Optimized for high-performance headless servers, this system orchestrates an ensemble of specialized micro-agents to ingest sports data, calculate real-time expected value ($EV$), detect cross-market arbitrage opportunities, and execute optimized capital allocations.
 
 ---
 
@@ -17,8 +17,8 @@ An autonomous, distributed-agent quantitative trading pipeline and validation en
 
 ### 2. Deployment
 ```bash
-git clone https://github.com/owenpkent/syndicate.git
-cd syndicate
+git clone https://github.com/owenpkent/sportsball.git
+cd sportsball
 cp .env.example .env
 make setup            # Initialize local venv & dependencies
 docker compose up -d --build
@@ -33,7 +33,7 @@ docker compose up -d --build
 
 ## ─── Performance Visualization ───
 
-The Syndicate includes a suite of Python-driven visualization tools to verify alpha:
+Sportsball includes a suite of Python-driven visualization tools to verify alpha:
 
 *   **[Walk-Forward Simulation](scripts/visualize_backtest.py)**: Replicates real-time model learning and trading over 500+ games. Run with `make backtest-viz`.
 *   **[PnL Equity Curve](scripts/visualize_pnl.py)**: Visualizes bankroll growth and volatility. Run with `make plot`.
@@ -48,6 +48,7 @@ For deep dives into specific system components, refer to our documentation libra
 *   **[Quantitative Handbook](docs/QUANT.md)**: Explore the mathematical engine, including $EV$ calculation, Kelly Criterion sizing, Logistic Regression, and Monte Carlo simulations.
 *   **[System Architecture](docs/ARCHITECTURE.md)**: Detailed topology of the "Cluster in a Box" design, Redis stream integration, and micro-agent specifications.
 *   **[Developer Guide](docs/DEVELOPMENT.md)**: Step-by-step instructions for running backtests, monitoring real-time performance via the Dashboard, and extending agent functionality.
+*   **[Quantitative Resources](docs/RESOURCES.md)**: Industry literature, mathematical foundations (Moneyball, Dixon-Coles), and data provider specifications.
 
 ---
 

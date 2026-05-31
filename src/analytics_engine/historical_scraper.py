@@ -23,7 +23,7 @@ def get_db_connection():
     return psycopg2.connect(
         host=os.getenv("DB_HOST", "postgres"),
         database="market_history",
-        user="syndicate_admin",
+        user="sportsball_admin",
         password="changeme_in_env"
     )
 
@@ -91,7 +91,7 @@ def scrape_date(date_str, sport_id, api_key):
         return []
 
 def main():
-    parser = argparse.ArgumentParser(description="Syndicate Historical Data Scraper")
+    parser = argparse.ArgumentParser(description="Sportsball Historical Data Scraper")
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--sport-id", type=int, default=4, help="NBA=4, NFL=2")
