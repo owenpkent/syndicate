@@ -30,6 +30,8 @@ make retrain                  # the modeling loop: optimize + train (Engine hot-
 make backfill-signals         # persist model predictions as signals (recent window) for evaluate
 make eval-duckdb              # out-of-sample walk-forward holdout vs DuckDB (no Postgres)
 make roster-pit               # point-in-time roster strength -> team_strength_pit
+make ingest-injuries          # point-in-time roster availability -> team_availability_pit
+make ingest-odds              # real closing odds -> events.home/away_close (FILE= or ODDS_API_KEY)
 make measure-features         # holdout feature ablation; model-quality = calibration + sweep
 make backtest-sim             # walk-forward betting backtest (ROI/win%/drawdown vs synthetic market+vig)
 
@@ -137,8 +139,8 @@ expose home/away). CI runs the suite on push (`.github/workflows/ci.yml`).
 so the full Postgres loop (retrain → backfill-signals → evaluate) runs locally.
 See docs/ARCHITECTURE.md §5.
 
-The win-probability model is **v2** (schema_version 2): MOV-adjusted Elo with
-season carryover, a shared `quant/features.py` builder (7 features) used by both
+The win-probability model is **v3** (schema_version 3): MOV-adjusted Elo with
+season carryover, a shared `quant/features.py` builder (8 features) used by both
 train and serve, a `Pipeline(StandardScaler, LogisticRegression)`, and a
 player-derived roster-strength feature from the DuckDB logs (`make player-strength`),
 and post-hoc **temperature calibration** (fixes out-of-sample over-confidence; `T`
@@ -147,8 +149,16 @@ persisted in `model_meta.json`, applied in `ModelBundle`). Holdout ablation
 lift; the enrichment features are now **point-in-time** (season-to-date): net-eff
 is computed in the Elo walk (adds −0.0009, where the current-season version added
 ~0) and roster strength from `team_strength_pit` (collinear with net-eff → ~0,
-kept at weight ~0). Both reset at season boundaries, symmetric train/serve.
-Artifacts are `models/{win_prob_model.pkl, team_state.json, model_meta.json}`; a
-schema/width mismatch makes the Engine abstain until `make retrain`. After pulling
-these changes the shipped 1-feature model is stale — run `make retrain` to
-regenerate. See docs/QUANT.md for the algorithm.
+kept at weight ~0). The v3 addition is **`availability_diff`** — point-in-time
+roster availability (the injuries lever): `make ingest-injuries` derives a
+leakage-free per-team-game availability score from the DuckDB player logs (who
+actually played, scored from prior games only) into `team_availability_pit`; the
+trainer joins it and the Engine's serve path reads the latest value per team.
+With no availability rows the feature is **inert (neutral 0)** and the model
+behaves exactly as v2 — same "plumbing ready, blocked on data" posture as the
+odds feed; once availability data lands a retrain activates it. All point-in-time
+features reset at season boundaries, symmetric train/serve. Artifacts are
+`models/{win_prob_model.pkl, team_state.json, model_meta.json}`; a schema/width
+mismatch makes the Engine abstain until `make retrain`. After pulling these
+changes the shipped model is stale — run `make retrain` to regenerate. See
+docs/QUANT.md for the algorithm.

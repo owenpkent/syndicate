@@ -47,6 +47,8 @@ sportsball-backfill = "sportsball.pipelines.backfill:main"
 sportsball-backfill-signals = "sportsball.pipelines.backfill_signals:main"
 sportsball-bootstrap = "sportsball.pipelines.bootstrap:main"
 sportsball-ingest-nba = "sportsball.pipelines.ingest_nba:main"
+sportsball-ingest-injuries = "sportsball.pipelines.ingest_injuries:main"
+sportsball-ingest-odds = "sportsball.pipelines.ingest_odds:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

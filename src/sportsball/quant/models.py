@@ -145,12 +145,16 @@ class ModelBundle:
         current_date: Optional[date] = None,
         home_stat: Optional[TeamStat] = None,  # noqa: ARG002 - kept for call compatibility
         away_stat: Optional[TeamStat] = None,  # noqa: ARG002
+        home_availability: Optional[float] = None,
+        away_availability: Optional[float] = None,
     ) -> float:
         """Probability the home team wins, from the full feature vector.
 
         The net-rating and roster features are **point-in-time**: they come from
         the team snapshot's season-to-date values, reset to 0 when the game falls
-        in a later season than the snapshot (no prior games yet). ``home_stat`` /
+        in a later season than the snapshot (no prior games yet). Availability is
+        passed live by the caller (tonight's injury-adjusted value), not taken
+        from the stale snapshot; ``None`` -> 0 leaves it inert. ``home_stat`` /
         ``away_stat`` are ignored (kept only so existing callers don't break).
         """
         home_snap = self.snapshots.get(home_team) or neutral_snapshot()
@@ -167,6 +171,7 @@ class ModelBundle:
         row = feat.build_feature_row(
             home_snap, away_snap, current_date, float(self.meta["hfa"]),
             TeamStat(h_net, 0.0), TeamStat(a_net, 0.0), h_roster, a_roster,
+            home_availability=home_availability, away_availability=away_availability,
         )
         p = float(self.model.predict_proba([row])[0][1])
         # Post-hoc calibration (T defaults to 1.0 / no-op for older artifacts).
@@ -189,4 +194,5 @@ def _snapshot_from_json(d: dict) -> TeamSnapshot:
         net_eff=float(d.get("net_eff", 0.0)),
         roster=float(d.get("roster", 0.0)),
         season=d.get("season"),
+        availability=float(d.get("availability", 0.0)),
     )

@@ -68,6 +68,22 @@ def _team_stat(store: Store, team_name: str) -> Optional[TeamStat]:
     return TeamStat(net_rating=float(row[0]), pace=float(row[1]), player_strength=ps)
 
 
+def _availability(store: Store, team_name: str) -> Optional[float]:
+    """Tonight's roster availability for a team, or None when unknown.
+
+    Read from ``team_availability_pit`` (``make ingest-injuries``); ``None`` ->
+    the availability feature stays neutral (0), so a missing feed never biases a
+    side. Best-effort: any DB hiccup degrades to neutral rather than raising.
+    """
+    if not store.available:
+        return None
+    try:
+        row = store.team_availability(team_name)
+    except Exception:  # noqa: BLE001 - table may be empty/absent
+        return None
+    return float(row[0]) if row and row[0] is not None else None
+
+
 def model_probability(bundle: ModelBundle, store: Store, metadata: dict) -> Optional[float]:
     teams = _teams(metadata)
     participant = metadata.get("participant")
@@ -80,6 +96,8 @@ def model_probability(bundle: ModelBundle, store: Store, metadata: dict) -> Opti
     return bundle.predict_participant_prob(
         home, away, participant, current_date=current_date,
         home_stat=_team_stat(store, home), away_stat=_team_stat(store, away),
+        home_availability=_availability(store, home),
+        away_availability=_availability(store, away),
     )
 
 

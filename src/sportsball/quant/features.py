@@ -25,7 +25,7 @@ from typing import Optional
 # Bump SCHEMA_VERSION whenever FEATURE_ORDER changes; ModelBundle.load refuses to
 # serve an artifact whose schema doesn't match, forcing a retrain (never a
 # wrong-width predict).
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 FEATURE_ORDER = [
     "elo_diff_hfa",          # (home.elo + hfa) - away.elo
@@ -35,6 +35,7 @@ FEATURE_ORDER = [
     "b2b_away",              # away on a back-to-back?
     "form_diff",             # home rolling win% - away rolling win%
     "player_strength_diff",  # home roster strength - away roster strength
+    "availability_diff",     # home roster availability - away (point-in-time)
 ]
 N_FEATURES = len(FEATURE_ORDER)
 
@@ -80,6 +81,10 @@ class TeamSnapshot:
     net_eff: float = 0.0
     roster: float = 0.0
     season: Optional[int] = None
+    # Point-in-time roster availability (share of season-to-date roster strength
+    # actually expected to play). 0.0 = unknown/neutral; the serve path overrides
+    # this with tonight's injury-adjusted value rather than reusing a stale one.
+    availability: float = 0.0
 
 
 def neutral_snapshot() -> TeamSnapshot:
@@ -122,18 +127,24 @@ def build_feature_row(
     away_stat=None,
     home_player_strength: Optional[float] = None,
     away_player_strength: Optional[float] = None,
+    home_availability: Optional[float] = None,
+    away_availability: Optional[float] = None,
 ) -> list[float]:
     """Build the model feature vector in ``FEATURE_ORDER``.
 
     Called identically by training and serving. ``home_stat``/``away_stat`` are
-    optional TeamStat-like objects (``net_rating``); player strength is passed
-    separately so train and serve can source it the same way. Any missing input
-    contributes a neutral ``0``.
+    optional TeamStat-like objects (``net_rating``); player strength and
+    availability are passed separately so train and serve can source them the same
+    way. Any missing input contributes a neutral ``0`` — so with no availability
+    data the ``availability_diff`` feature is inert and the model behaves exactly
+    as it did before the feature existed.
     """
     home_rest = rest_days(current_date, home_snap.last_game_date)
     away_rest = rest_days(current_date, away_snap.last_game_date)
     hps = float(home_player_strength) if home_player_strength is not None else 0.0
     aps = float(away_player_strength) if away_player_strength is not None else 0.0
+    hav = float(home_availability) if home_availability is not None else 0.0
+    aav = float(away_availability) if away_availability is not None else 0.0
 
     row = {
         "elo_diff_hfa": (home_snap.elo + hfa) - away_snap.elo,
@@ -143,5 +154,6 @@ def build_feature_row(
         "b2b_away": is_b2b(current_date, away_snap.last_game_date),
         "form_diff": home_snap.form - away_snap.form,
         "player_strength_diff": hps - aps,
+        "availability_diff": hav - aav,
     }
     return [float(row[name]) for name in FEATURE_ORDER]

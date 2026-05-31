@@ -49,6 +49,7 @@ class _TeamState:
     margin_sum: float = 0.0
     net_eff: float = 0.0   # season-to-date net_eff AFTER the team's last game
     roster: float = 0.0    # roster strength as of the team's last game
+    availability: float = 0.0  # roster availability as of the team's last game
 
 
 class _Net:
@@ -115,6 +116,7 @@ def walk_forward(
     gap_days: int = 90,
     form_window: int = 10,
     roster_pit: Optional[dict] = None,
+    availability_pit: Optional[dict] = None,
 ):
     """Replay history; return ``(list[FeatureRow], dict[str, TeamSnapshot])``.
 
@@ -123,11 +125,14 @@ def walk_forward(
     The ``player_strength_diff`` feature comes from ``roster_pit`` (keyed by
     ``(normalized_team, date_iso)``), the precomputed season-to-date roster
     strength; ``None`` during optimization (-> 0, leaving the Elo log-loss path
-    unchanged). Both reset at a season boundary (no prior games).
+    unchanged). The ``availability_diff`` feature comes from ``availability_pit``
+    (same key shape) — point-in-time roster availability; ``None`` -> 0, inert.
+    All reset at a season boundary (no prior games).
     """
     from ..matching import normalize_team
 
     roster_pit = roster_pit or {}
+    availability_pit = availability_pit or {}
     states: dict[str, _TeamState] = {}
     form_hist: dict[str, deque] = {}
     rows: list[FeatureRow] = []
@@ -140,6 +145,9 @@ def walk_forward(
 
     def roster_for(team: str, current: date) -> float:
         return roster_pit.get((normalize_team(team), current.isoformat()), 0.0)
+
+    def avail_for(team: str, current: date) -> float:
+        return availability_pit.get((normalize_team(team), current.isoformat()), 0.0)
 
     def net_eff_pregame(s: _TeamState, season: int) -> float:
         # Season-to-date avg margin using only this season's prior games.
@@ -159,6 +167,7 @@ def walk_forward(
 
         h_net, a_net = net_eff_pregame(sh, season), net_eff_pregame(sa, season)
         h_roster, a_roster = roster_for(home, current), roster_for(away, current)
+        h_avail, a_avail = avail_for(home, current), avail_for(away, current)
         home_snap = TeamSnapshot(sh.elo, sh.last_date, _form(hist(home)), sh.games_played)
         away_snap = TeamSnapshot(sa.elo, sa.last_date, _form(hist(away)), sa.games_played)
 
@@ -166,6 +175,7 @@ def walk_forward(
         row = feat.build_feature_row(
             home_snap, away_snap, current, hfa,
             _Net(h_net), _Net(a_net), h_roster, a_roster,
+            home_availability=h_avail, away_availability=a_avail,
         )
 
         if hs > as_:
@@ -196,11 +206,12 @@ def walk_forward(
             s.margin_sum += signed
             s.net_eff = s.margin_sum / s.season_games
             s.roster = roster_for(team, current)
+            s.availability = avail_for(team, current)
             hist(team).append(1.0 if won == 1.0 else (0.5 if actual == 0.5 else 0.0))
 
     snapshots = {
         team: TeamSnapshot(s.elo, s.last_date, _form(form_hist.get(team, deque())),
-                           s.games_played, s.net_eff, s.roster, s.season)
+                           s.games_played, s.net_eff, s.roster, s.season, s.availability)
         for team, s in states.items()
     }
     return rows, snapshots

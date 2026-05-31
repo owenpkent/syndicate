@@ -9,7 +9,8 @@ PIP=$(PYTHON) -m pip
 
 .PHONY: setup test dashboard health digest smoke plot calibrate clv evaluate fetch-stats demo \
         backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
-        player-strength roster-pit eval-duckdb measure-features model-quality backtest-sim shell
+        player-strength roster-pit ingest-injuries ingest-odds eval-duckdb measure-features \
+        model-quality backtest-sim shell
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -67,6 +68,16 @@ player-strength:
 # Point-in-time (season-to-date) roster strength per team-game -> team_strength_pit.
 roster-pit:
 	@DB_HOST=localhost $(PYTHON) scripts/precompute_roster_pit.py
+
+# Point-in-time roster availability per team-game (the injuries lever) ->
+# team_availability_pit. Feeds the model's availability_diff feature.
+ingest-injuries:
+	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.ingest_injuries
+
+# Closing odds (real lines) -> events.home_close/away_close, unblocking real CLV.
+# FILE=path for an offline JSON/CSV feed, or set ODDS_API_KEY for The Odds API.
+ingest-odds:
+	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.ingest_odds $(if $(FILE),--file $(FILE),)
 
 # Train + out-of-sample (chronological holdout) eval against the DuckDB store,
 # no Postgres needed. Add WRITE=1 to also persist Engine-loadable artifacts.

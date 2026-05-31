@@ -211,3 +211,30 @@ class Store:
         return self.db.query(
             "SELECT team_name, game_date, roster_strength FROM team_strength_pit"
         )
+
+    # -- availability ---------------------------------------------------------
+    def availability_pit_all(self) -> list[tuple]:
+        """(team_name, game_date, availability) point-in-time, every team-game."""
+        return self.db.query(
+            "SELECT team_name, game_date, availability FROM team_availability_pit"
+        )
+
+    def upsert_availability(self, team_name: str, game_date, season, availability: float) -> None:
+        """Record one team's point-in-time roster availability for a date."""
+        self.db.execute(
+            """
+            INSERT INTO team_availability_pit (team_name, game_date, season, availability)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (team_name, game_date) DO UPDATE SET
+                season = EXCLUDED.season, availability = EXCLUDED.availability
+            """,
+            (team_name, game_date, season, float(availability)),
+        )
+
+    def team_availability(self, team_name: str):
+        """Most recent availability for a team (tonight's, for serving), or None."""
+        return self.db.query_one(
+            "SELECT availability FROM team_availability_pit "
+            "WHERE team_name ILIKE %s ORDER BY game_date DESC LIMIT 1",
+            (f"%{team_name}%",),
+        )

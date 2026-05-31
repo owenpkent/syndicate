@@ -54,6 +54,28 @@ def _roster_pit_map(store: Store) -> dict:
     return out
 
 
+def _availability_pit_map(store: Store) -> dict:
+    """Point-in-time roster availability keyed by (normalized_team, date_iso).
+
+    From the ``team_availability_pit`` table (``make ingest-injuries``). Empty when
+    unavailable -> the availability feature contributes 0 (inert), so the model
+    behaves exactly as it did before the feature existed until data lands.
+    """
+    if not store.available:
+        return {}
+    try:
+        rows = store.availability_pit_all()
+    except Exception as exc:  # noqa: BLE001 - table may be absent
+        log.warning("team_availability_pit unavailable (%s); availability feature -> 0.", exc)
+        return {}
+    out = {}
+    for name, game_date, availability in rows:
+        iso = game_date.date().isoformat() if hasattr(game_date, "date") else str(game_date)[:10]
+        out[(normalize_team(name), iso)] = float(availability or 0.0)
+    log.info("Loaded %d point-in-time availability values.", len(out))
+    return out
+
+
 def _fit_temperature(X, y, cal_frac: float = 0.1) -> float:
     """Fit a confidence-scaling temperature on a held-out recent tail.
 
@@ -92,13 +114,15 @@ def run(db: Database) -> bool:
         return False
 
     strategy = load_settings().strategy
-    roster_pit = _roster_pit_map(Store(db))
+    store = Store(db)
+    roster_pit = _roster_pit_map(store)
+    availability_pit = _availability_pit_map(store)
 
     rows, snapshots = walk_forward(
         results, params["k_factor"], params["hfa"],
         mov_enabled=strategy.elo_mov_enabled, carry=strategy.elo_carry,
         gap_days=strategy.elo_offseason_gap_days, form_window=strategy.form_window,
-        roster_pit=roster_pit,
+        roster_pit=roster_pit, availability_pit=availability_pit,
     )
     X = np.array([r.features for r in rows])
     y = np.array([1 if r.actual >= 1.0 else 0 for r in rows])
@@ -123,6 +147,7 @@ def run(db: Database) -> bool:
             "net_eff": s.net_eff,
             "roster": s.roster,
             "season": s.season,
+            "availability": s.availability,
         } for team, s in snapshots.items()
     }))
     (MODEL_DIR / "model_meta.json").write_text(json.dumps({

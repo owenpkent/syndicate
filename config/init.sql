@@ -90,6 +90,20 @@ CREATE TABLE IF NOT EXISTS team_strength_pit (
     PRIMARY KEY (team_name, game_date)
 );
 
+-- ---------------------------------------------------------------------------
+-- team_availability_pit: point-in-time roster availability per team-game — the
+-- share of season-to-date roster strength actually expected to play (injuries /
+-- rest). Feeds the model's availability_diff feature; the live serve path reads
+-- the most recent row per team. Empty -> the feature is inert (neutral 0).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS team_availability_pit (
+    team_name       TEXT,
+    game_date       TIMESTAMPTZ,
+    season          INTEGER,
+    availability    NUMERIC(10, 4),
+    PRIMARY KEY (team_name, game_date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_status ON events (status);
 CREATE INDEX IF NOT EXISTS idx_events_date ON events (event_date);
 CREATE INDEX IF NOT EXISTS idx_signals_event ON signals (event_id);
