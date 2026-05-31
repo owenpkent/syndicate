@@ -98,3 +98,18 @@ services:
       - ./src:/app
     command: ["python", "dashboard.py"]
     restart: always
+
+  visualizer:
+    image: syndicate-analytics_engine
+    container_name: syndicate_visualizer
+    depends_on:
+      - postgres
+    environment:
+      - DB_HOST=postgres
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./scripts:/app/scripts
+      - ./data/plots:/app/plots
+    working_dir: /app/plots
+    command: ["python", "/app/scripts/visualize_pnl.py"]
+    restart: "no"
