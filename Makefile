@@ -26,6 +26,18 @@ calibrate:
 	@export DB_HOST=localhost && $(PYTHON) scripts/visualize_calibration.py
 	@echo "Output saved to data/plots/calibration_plot.png"
 
+clv:
+	@echo "Analyzing Closing Line Value (CLV)..."
+	@export DB_HOST=localhost && $(PYTHON) scripts/analyze_clv.py
+
+evaluate:
+	@echo "Calculating professional model metrics..."
+	@export DB_HOST=localhost && $(PYTHON) scripts/evaluate_stats.py
+
+health:
+	@echo "Checking system health..."
+	@export REDIS_HOST=localhost && $(PYTHON) scripts/monitor_agents.py
+
 demo:
 	@echo "Seeding demo data for visualization..."
 	@export DB_HOST=localhost && $(PYTHON) scripts/seed_demo_data.py

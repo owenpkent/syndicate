@@ -45,10 +45,15 @@ def seed():
                 away_odds = round(1 / ((1 - true_prob) + random.uniform(-0.1, 0.1)), 2)
                 if away_odds <= 1: away_odds = 2.0
                 
-                cur.execute(
-                    "INSERT INTO historical_results (event_id, home_team, away_team, home_score, away_score, home_odds, away_odds, event_date) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                    (event_id, "TeamA", "TeamB", h_score, a_score, odds, away_odds, datetime.now() - timedelta(days=i))
-                )
+                cur.execute("""
+                    INSERT INTO historical_results (event_id, home_team, away_team, home_score, away_score, home_odds, away_odds, event_date)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (event_id) DO UPDATE SET
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score,
+                    home_odds = EXCLUDED.home_odds,
+                    away_odds = EXCLUDED.away_odds
+                """, (event_id, "TeamA", "TeamB", h_score, a_score, odds, away_odds, datetime.now() - timedelta(days=i)))
 
                 # Insert into trade_history (Simulation of executed trades)
                 if (true_prob * odds) - 1 > 0.05: # High EV trades
