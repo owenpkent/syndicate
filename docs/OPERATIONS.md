@@ -60,8 +60,22 @@ trading is the truest edge signal — note it needs a closing-line source
 | Command | Shows |
 |---------|-------|
 | `make health` / `sportsball-health` | Redis + Postgres reachability, queue depth, exposure, row counts (exit code 0/1) |
+| `make smoke` / `sportsball-smoke` | **Live** integration check: Gamma API markets, nba_api season, CLOB WebSocket (exit 0/1) |
 | `make dashboard` | Trades, realized PnL, arb count, favorite-hit baseline, latest executions |
 | `docker compose logs -f analytics_engine` | Per-signal `[SIGNAL]`/`[REJECT]`/`[ABSTAIN]`/`[ARBITRAGE]` decisions |
+
+`make smoke` hits the real external services and reports what comes back — use it
+to confirm the integrations work before relying on them:
+
+```bash
+make smoke                                   # all three checks
+sportsball-smoke --skip-ws --nba-season 2023-24
+```
+
+Each check is isolated and the process exits non-zero on any failure. A "market
+quiet" WARN on the WebSocket is normal (it connected; no book update arrived in
+the window). Reference run: Gamma returned live markets, nba_api returned 1230
+games for a full season, and the CLOB socket connected + accepted the subscribe.
 
 ---
 

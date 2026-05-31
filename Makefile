@@ -7,7 +7,7 @@
 PYTHON=./venv/bin/python3
 PIP=$(PYTHON) -m pip
 
-.PHONY: setup test dashboard health plot calibrate clv evaluate fetch-stats demo \
+.PHONY: setup test dashboard health smoke plot calibrate clv evaluate fetch-stats demo \
         backtest backtest-viz optimize train retrain ingest-nba shell
 
 setup:
@@ -28,6 +28,10 @@ dashboard:
 health:
 	@echo "Checking system health..."
 	@REDIS_HOST=localhost DB_HOST=localhost $(PYTHON) -m sportsball.tools.health
+
+# Validate the live external integrations (Gamma API, nba_api, CLOB WebSocket).
+smoke:
+	@$(PYTHON) -m sportsball.tools.smoke
 
 # --- Modeling pipelines (host, against localhost Postgres) ---
 optimize:

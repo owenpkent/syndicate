@@ -23,6 +23,7 @@ make test      # pytest — 71 unit tests, NO DB/Redis needed (uses in-memory fa
 make backtest  # run tests/backtest_pipeline.py over mock ticks
 make demo      # seed the DB with fake events/signals/trades for the tools
 make dashboard / health / clv / evaluate / plot / calibrate / backtest-viz
+make smoke     # validate LIVE integrations (Gamma API, nba_api, CLOB WebSocket)
 make ingest-nba               # FREE real NBA history (nba_api, no key) -> events
 make retrain                  # the modeling loop: optimize + train (Engine hot-reloads)
 
@@ -48,7 +49,7 @@ Package layout (`src/sportsball/`):
 - `markets/` — Polymarket Gamma discovery (pure `parse_markets` + networked `fetch_markets`)
 - `agents/` — oracle, scout, engine, sniper, settlement, retrainer (each has `main()`)
 - `pipelines/` — optimize, train, retrain, backfill, ingest_nba (run on demand)
-- `tools/` — dashboard, health, clv, evaluate
+- `tools/` — dashboard, health, clv, evaluate, smoke (live-integration check)
 
 Events are keyed by a **canonical `event_id`** (`matching.canonical_event_id`,
 e.g. `nba_20240115_lakers_at_celtics`) so the Oracle, backfill, NBA ingester, and
@@ -94,7 +95,8 @@ Scout collapse the same game onto one row. It contains no `-` (safe in `market_i
 ## Status
 
 Phases 1–3 done: package refactor, normalized schema, live Polymarket discovery,
-canonical event ids, free NBA data ingest, and an automated retrain loop. The
-remaining caveats are **live validation** (Gamma/CLOB/nba_api parsing matches
-documented shapes but isn't exercised in CI) and **cross-venue arb** (depends on
-Polymarket sports markets exposing a parseable matchup). See docs/ARCHITECTURE.md §5.
+canonical event ids, free NBA data ingest, and an automated retrain loop. Live
+integrations are validated via `make smoke` (confirmed: real Gamma markets, 1230
+nba_api games/season, CLOB socket connects) but not yet in automated CI. The main
+open item is **cross-venue arb** (depends on Polymarket sports markets exposing a
+parseable matchup). See docs/ARCHITECTURE.md §5.

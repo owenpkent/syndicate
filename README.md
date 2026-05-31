@@ -42,6 +42,9 @@ The Retrainer agent then keeps the model fresh on a schedule, and the Engine
 hot-reloads it. (For closing-line value, add `sportsball-backfill` with a
 `RUNDOWN_API_KEY`.)
 
+Validate the live data sources any time with `make smoke` (checks the Gamma API,
+nba_api, and the Polymarket CLOB WebSocket).
+
 ---
 
 ## ─── Performance Visualization ───
@@ -131,7 +134,7 @@ image; each agent is a console entrypoint (`sportsball-oracle`, `-engine`, …).
 │   ├── [markets/](src/sportsball/markets/)        # Polymarket Gamma discovery
 │   ├── [agents/](src/sportsball/agents/)          # oracle · scout · engine · sniper · settlement · retrainer
 │   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · retrain · backfill · ingest_nba
-│   └── [tools/](src/sportsball/tools/)            # dashboard · health · clv · evaluate
+│   └── [tools/](src/sportsball/tools/)            # dashboard · health · clv · evaluate · smoke
 ├── [scripts/](scripts/)               # Host visualizations & stats enrichment
 └── [tests/](tests/)                   # Unit suite (71 tests) + backtest pipeline
 ```

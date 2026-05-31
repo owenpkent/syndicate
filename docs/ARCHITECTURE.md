@@ -187,10 +187,11 @@ weaknesses; the rest are tracked as the roadmap.
 
 **Still open / caveats**
 
-1. **Live integrations are unit-tested, not live-validated.** Gamma/CLOB parsing
-   matches Polymarket's documented shapes and `nba_api` row shapes, but the live
-   socket and `stats.nba.com` calls aren't exercised in CI. Validate against the
-   real endpoints before relying on them.
+1. **Live integrations: unit-tested + manually smoke-tested, not in CI.** Parsing
+   is unit-tested against documented shapes, and `make smoke` validates against
+   the *real* services (a reference run returned live Gamma markets, 1230 nba_api
+   games for a full season, and a connected CLOB socket). They are not yet
+   exercised in automated CI — run `make smoke` after dependency/API changes.
 2. **Cross-venue arbitrage needs parseable sports markets.** Two venues only
    align when both produce the same canonical `event_id`. Polymarket's Gamma
    metadata for sports markets is inconsistent, so reliably extracting
