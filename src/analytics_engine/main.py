@@ -7,6 +7,7 @@ import pickle
 from math_utils import calculate_ev, calculate_kelly_fraction
 from advanced_models import LogisticWinProbability, MonteCarloPricer
 from portfolio_manager import PortfolioRiskManager
+from arbitrage_engine import ArbitrageEngine
 
 def load_settings():
     try:
@@ -65,6 +66,8 @@ def main():
     
     # Initialize Risk Manager
     risk_manager = PortfolioRiskManager(settings)
+    # Initialize Arbitrage Engine
+    arb_engine = ArbitrageEngine()
 
     print(f"Analytics Engine: Monitoring 'market_signals' stream (EV Buffer: {buffer})")
     
@@ -100,6 +103,29 @@ def main():
                     true_prob = data.get("true_prob")
 
                 ev = calculate_ev(true_prob, odds)
+
+                # --- ARBITRAGE DETECTION ---
+                if "metadata" in data and "participant" in data["metadata"] and "matchup" in data["metadata"]:
+                    # Identify if this signal is for the Home or Away team
+                    matchup = data["metadata"]["matchup"]
+                    try:
+                        away_team, home_team = matchup.split(" @ ")
+                        pt_type = "Home" if data["metadata"]["participant"] == home_team else "Away"
+                        source = data["metadata"].get("source", "Unknown")
+                        
+                        eid = arb_engine.update_odds(market_id, odds, source, pt_type)
+                        if eid:
+                            arb_opportunity = arb_engine.check_arbitrage(eid)
+                            if arb_opportunity:
+                                print(f"[ARBITRAGE] Found {arb_opportunity['profit_margin']*100:.2f}% Margin for {eid}!")
+                                r.rpush("execution_signals", json.dumps({
+                                    "type": "ARBITRAGE",
+                                    "event_id": eid,
+                                    "margin": arb_opportunity["profit_margin"],
+                                    "legs": arb_opportunity["legs"]
+                                }))
+                    except:
+                        pass
 
                 if conn:
                     try:

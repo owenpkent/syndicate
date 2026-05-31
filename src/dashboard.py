@@ -27,6 +27,10 @@ def fetch_stats():
             cur.execute("SELECT status, COUNT(*) FROM trade_history GROUP BY status")
             stats['status_counts'] = dict(cur.fetchall())
             
+            # Arbitrage Margin Tracking
+            cur.execute("SELECT COUNT(*) FROM trade_history WHERE status = 'ARBITRAGE_LEG'")
+            stats['arb_count'] = cur.fetchone()[0] // 2 # 2 legs per arb
+            
             # Avg Fraction (Risk)
             cur.execute("SELECT AVG(fraction) FROM trade_history WHERE status = 'SUCCESS'")
             stats['avg_risk'] = cur.fetchone()[0] or 0
@@ -64,6 +68,7 @@ def display_dashboard(stats):
     print(f"\n[SUMMARY]")
     print(f"  Live Signals Processed:  {stats['total_trades']}")
     print(f"  Execution Success Rate:  {(stats['status_counts'].get('SUCCESS', 0) / stats['total_trades'] * 100 if stats['total_trades'] > 0 else 0):.2f}%")
+    print(f"  Arbitrage Opps Locked:   {stats['arb_count']}")
     print(f"  Average Risk per Trade:  {float(stats['avg_risk']):.4f} units")
     
     print(f"\n[MODEL PERFORMANCE]")

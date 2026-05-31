@@ -63,6 +63,28 @@ def main():
         if signal:
             try:
                 data = json.loads(signal)
+                
+                if data.get("type") == "ARBITRAGE":
+                    event_id = data.get("event_id")
+                    margin = data.get("margin")
+                    print(f"[ARBITRAGE] Executing Multi-Leg Arb for {event_id} | Guaranteed Margin: {margin*100:.2f}%")
+                    
+                    for leg in data["legs"]:
+                        print(f"  -> Leg: {leg['market_id']} | Odds: {leg['odds']} | Size: {leg['allocation']:.4f}")
+                        
+                        # Persist leg (Simplified)
+                        if conn:
+                            try:
+                                with conn.cursor() as cur:
+                                    cur.execute(
+                                        "INSERT INTO trade_history (market_id, executed_odds, fraction, status) VALUES (%s, %s, %s, %s)",
+                                        (leg["market_id"], leg["odds"], leg["allocation"], "ARBITRAGE_LEG")
+                                    )
+                                conn.commit()
+                            except:
+                                pass
+                    continue
+
                 market_id = data.get("market_id")
                 odds = data.get("odds")
                 fraction = data.get("fraction")
