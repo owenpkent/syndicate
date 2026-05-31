@@ -26,6 +26,15 @@ calibrate:
 	@export DB_HOST=localhost && $(PYTHON) scripts/visualize_calibration.py
 	@echo "Output saved to data/plots/calibration_plot.png"
 
+demo:
+	@echo "Seeding demo data for visualization..."
+	@export DB_HOST=localhost && $(PYTHON) scripts/seed_demo_data.py
+
+backtest-viz:
+	@echo "Generating Historical Performance Visualization..."
+	@export DB_HOST=localhost && $(PYTHON) scripts/visualize_backtest.py
+	@echo "Chart saved to data/plots/backtest_performance.png"
+
 backtest:
 	@echo "Running containerized backtest..."
 	docker exec agent_engine python tests/backtest_pipeline.py --input tests/mock_ticks.json --bankroll 1000 --kelly 0.25
