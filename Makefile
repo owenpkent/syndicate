@@ -3,7 +3,7 @@
 PYTHON=./venv/bin/python3
 PIP=$(PYTHON) -m pip
 
-.PHONY: setup dashboard plot calibrate backtest shell
+.PHONY: setup test dashboard plot calibrate backtest shell
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -11,6 +11,10 @@ setup:
 	$(PIP) install --upgrade pip
 	$(PIP) install -r scripts/requirements.txt
 	@echo "Setup complete. Use 'make dashboard' or 'make plot'."
+
+test:
+	@echo "Running unit test suite..."
+	$(PYTHON) -m pytest tests/ -v
 
 dashboard:
 	@echo "Launching real-time dashboard..."

@@ -76,7 +76,7 @@ The engine aggregates these into a joint matrix to evaluate spreads and total li
 
 ---
 
-## 4. Cross-Market Arbitrage
+## 5. Cross-Market Arbitrage
 
 Beyond statistical edge ($EV$), the Sportsball detects mathematical "lock" opportunities where discrepancies between venues allow for guaranteed profit.
 

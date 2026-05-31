@@ -6,9 +6,9 @@ from datetime import datetime
 def get_db_connection():
     return psycopg2.connect(
         host=os.getenv("DB_HOST", "localhost"),
-        database="market_history",
-        user="sportsball_admin",
-        password="changeme_in_env"
+        database=os.getenv("POSTGRES_DB", "market_history"),
+        user=os.getenv("POSTGRES_USER", "sportsball_admin"),
+        password=os.getenv("POSTGRES_PASSWORD", "changeme_in_env"),
     )
 
 def clear_screen():
@@ -71,9 +71,9 @@ def display_dashboard(stats):
     print(f"  Arbitrage Opps Locked:   {stats['arb_count']}")
     print(f"  Average Risk per Trade:  {float(stats['avg_risk']):.4f} units")
     
-    print(f"\n[MODEL PERFORMANCE]")
+    print(f"\n[MARKET BASELINE]")
     print(f"  Historical Games in DB:  {stats['hist_count']}")
-    print(f"  Market Closing Accuracy: {stats['market_accuracy']:.2f}%")
+    print(f"  Favorite Hit Rate:       {stats['market_accuracy']:.2f}%  (closing favorite won; the bar to beat)")
     
     print(f"\n[LATEST EXECUTIONS]")
     print(f"{'Market ID':<20} | {'Odds':<8} | {'Size':<8} | {'Status':<10}")

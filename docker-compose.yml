@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
@@ -14,10 +12,12 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: sportsball_db
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: sportsball_admin
-      POSTGRES_PASSWORD: changeme_in_env
-      POSTGRES_DB: market_history
+      POSTGRES_USER: ${POSTGRES_USER:-sportsball_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_in_env}
+      POSTGRES_DB: ${POSTGRES_DB:-market_history}
     ports:
       - "5432:5432"
     volumes:
@@ -95,6 +95,8 @@ services:
     container_name: sportsball_dashboard
     depends_on:
       - postgres
+    env_file:
+      - .env
     environment:
       - DB_HOST=postgres
       - PYTHONUNBUFFERED=1
@@ -109,6 +111,8 @@ services:
     container_name: agent_settlement
     depends_on:
       - postgres
+    env_file:
+      - .env
     environment:
       - DB_HOST=postgres
       - PYTHONUNBUFFERED=1

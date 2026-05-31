@@ -5,15 +5,17 @@
 [![Docker](https://img.shields.io/badge/Docker-Enabled-blue)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Sportsball is an autonomous, distributed-agent quantitative trading pipeline and validation environment. Optimized for high-performance headless servers, this system orchestrates an ensemble of specialized micro-agents to ingest sports data, calculate real-time expected value ($EV$), detect cross-market arbitrage opportunities, and execute optimized capital allocations.
+Sportsball is an autonomous, distributed-agent quantitative trading pipeline and validation environment. It orchestrates an ensemble of specialized micro-agents to ingest sports data, calculate real-time expected value ($EV$), detect cross-market arbitrage opportunities, and size capital with the fractional Kelly criterion.
+
+> **What this is (and isn't):** Sportsball runs in **paper-trading / simulation mode** by default (`EXECUTION_MODE=PAPER`). It is a research and demonstration harness for sports-market modeling and execution logic — it does **not** place real bets and ships **no proven edge** out of the box. The default probability source is randomized; real alpha requires training a model on backfilled history. See **[Known Limitations](docs/ARCHITECTURE.md#5-known-limitations)** for an honest accounting of what works end-to-end today.
 
 ---
 
 ## ─── Quick Start ───
 
 ### 1. Requirements
-*   **Hardware:** Optimized for 16+ thread CPU architectures (e.g., AMD Ryzen 9).
-*   **Software:** Docker & Docker Compose, Python 3.12+ (for host-side tools).
+*   **Hardware:** Runs comfortably on any modern multi-core machine; the containerized agents are lightweight and I/O-bound.
+*   **Software:** Docker & Docker Compose (runtime), Python 3.11+ (for host-side tools and visualizations).
 
 ### 2. Deployment
 ```bash
@@ -57,7 +59,7 @@ Professional-grade tools for system health and quantitative audit:
 For deep dives into specific system components, refer to our documentation library:
 
 *   **[Quantitative Handbook](docs/QUANT.md)**: Explore the mathematical engine, including $EV$ calculation, Kelly Criterion sizing, Logistic Regression, and Monte Carlo simulations.
-*   **[System Architecture](docs/ARCHITECTURE.md)**: Detailed topology of the "Cluster in a Box" design, Redis stream integration, and micro-agent specifications.
+*   **[System Architecture](docs/ARCHITECTURE.md)**: Detailed topology of the "Cluster in a Box" design, the Redis-backed signal pipeline, message schemas, and micro-agent specifications.
 *   **[Developer Guide](docs/DEVELOPMENT.md)**: Step-by-step instructions for running backtests, monitoring real-time performance via the Dashboard, and extending agent functionality.
 *   **[Quantitative Resources](docs/RESOURCES.md)**: Industry literature, mathematical foundations (Moneyball, Dixon-Coles), and data provider specifications.
 
@@ -68,17 +70,33 @@ For deep dives into specific system components, refer to our documentation libra
 The architecture executes a "Cluster in a Box" design pattern using Docker containers to isolate specialized agent roles. This ensures multi-threaded efficiency across CPU cores and zero dependency cross-contamination.
 
 ```text
-              ┌───────────────── [ Oracle Agent ] (Sharp Market Odds)
-              │
-              ▼
-[ Redis Stream / Message Broker ] ◄─► [ Analytics Engine ] ──► [ DB / Log Layer ]
-▲                             │
-│                             ▼
-└───────────────── [ Scout Agent ] (DEX / Polymarket WebSockets)
-│
-▼
-[ Sniper Agent ] (Executioner & Paper Trader)
+  [ Oracle Agent ]        [ Scout Agent ]
+  (sharp book odds)       (Polymarket WS)
+        │                       │
+        └────────┬──────────────┘
+                 ▼   RPUSH "market_signals"
+        ┌─────────────────────┐
+        │     Redis broker     │◄──── HSET "active_trades" (exposure)
+        └─────────────────────┘
+                 │   LPOP
+                 ▼
+        ┌─────────────────────┐      INSERT
+        │  Analytics Engine    │ ───────────────►  [ PostgreSQL ]
+        │  EV · Kelly · Arb    │                   market_history
+        └─────────────────────┘                   trade_history
+                 │   RPUSH "execution_signals"     historical_results
+                 ▼
+        ┌─────────────────────┐      INSERT trade
+        │   Sniper Agent       │ ───────────────►  [ PostgreSQL ]
+        │ (paper execution)    │
+        └─────────────────────┘
+                 ▲   UPDATE WIN/LOSS
+        ┌─────────────────────┐
+        │  Settlement Agent    │ ◄── JOIN trade_history ↔ historical_results
+        └─────────────────────┘
 ```
+
+See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full signal lifecycle, schemas, and queue semantics.
 
 ---
 
@@ -107,6 +125,45 @@ The architecture executes a "Cluster in a Box" design pattern using Docker conta
 *   **[Portfolio Manager](src/analytics_engine/portfolio_manager.py)**: Global exposure and correlation guards.
 *   **[Model Trainer](src/analytics_engine/model_trainer.py)**: Automated Logistic Regression and Elo training pipeline.
 *   **[Backtest Pipeline](tests/backtest_pipeline.py)**: Historical simulation and strategy validation engine.
+
+---
+
+## ─── Configuration ───
+
+All runtime behavior is driven by two files. Copy `.env.example` to `.env` and edit as needed.
+
+### Environment variables (`.env`)
+
+| Variable | Default | Used by | Description |
+|----------|---------|---------|-------------|
+| `RUNDOWN_API_KEY` | _(unset)_ | Oracle, scraper | The Rundown API key. If unset/placeholder, the Oracle runs in **mock mode**. |
+| `EXECUTION_MODE` | `PAPER` | Sniper | `PAPER` simulates fills with slippage. Any other value skips execution (live trading is not implemented). |
+| `SLIPPAGE_TOLERANCE_PCT` | `0.005` | Sniper | Reject a simulated fill if slippage exceeds this fraction. |
+| `POLLING_INTERVAL` | `30` | Oracle | Seconds between Oracle line pulls. |
+| `SETTLEMENT_INTERVAL` | `60` | Settlement | Seconds between settlement sweeps. |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `sportsball_admin` / `changeme_in_env` / `market_history` | Postgres + all DB clients | Database credentials. **Change the password** before any non-local use — every agent now reads these from the environment. |
+| `REDIS_HOST` / `DB_HOST` | `redis` / `postgres` | all agents | Service hostnames (set automatically inside Compose; host-side tools default to `localhost`). |
+
+### Strategy parameters (`config/settings.json`)
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `safety_buffer_ev` | `0.02` | Minimum EV required to emit an execution signal (model-variance cushion). |
+| `kelly_multiplier` | `0.25` | Fraction of full Kelly to stake (quarter-Kelly). |
+| `default_slippage` | `0.005` | Reference slippage for simulations. |
+| `max_global_exposure_pct` | `0.15` | Hard cap on total simultaneous staked fraction across all open trades. |
+| `correlation_penalty_multiplier` | `0.5` | Size multiplier applied when a new bet shares an event with an existing position. |
+
+---
+
+## ─── Testing ───
+
+Unit tests cover the math core and arbitrage detection (no database or network required):
+
+```bash
+make test          # runs the host-side unit suite (pytest)
+make backtest      # containerized strategy backtest over tests/mock_ticks.json
+```
 
 ---
 

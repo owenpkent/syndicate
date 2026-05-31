@@ -25,9 +25,9 @@ def get_db_connection():
     try:
         return psycopg2.connect(
             host=os.getenv("DB_HOST", "localhost"),
-            database="market_history",
-            user="sportsball_admin",
-            password="changeme_in_env"
+            database=os.getenv("POSTGRES_DB", "market_history"),
+            user=os.getenv("POSTGRES_USER", "sportsball_admin"),
+            password=os.getenv("POSTGRES_PASSWORD", "changeme_in_env"),
         )
     except Exception as e:
         print(f"Warning: Could not connect to DB: {e}")

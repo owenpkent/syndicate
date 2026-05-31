@@ -5,9 +5,9 @@ import numpy as np
 def get_db_connection():
     return psycopg2.connect(
         host=os.getenv("DB_HOST", "localhost"),
-        database="market_history",
-        user="sportsball_admin",
-        password="changeme_in_env"
+        database=os.getenv("POSTGRES_DB", "market_history"),
+        user=os.getenv("POSTGRES_USER", "sportsball_admin"),
+        password=os.getenv("POSTGRES_PASSWORD", "changeme_in_env"),
     )
 
 def analyze_clv():
