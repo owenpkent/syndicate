@@ -14,6 +14,7 @@ from ..broker import Broker
 from ..config import Settings, load_settings
 from ..db import Database
 from ..logging_conf import get_logger
+from ..notify import NULL_NOTIFIER, Notifier, build_notifier
 from ..store import HOME, PendingTrade, Store
 
 log = get_logger("settlement")
@@ -28,7 +29,7 @@ def grade(trade: PendingTrade) -> tuple[str, float]:
     return "LOSS", -float(trade.stake_frac)
 
 
-def settle_once(store: Store, broker: Broker) -> int:
+def settle_once(store: Store, broker: Broker, notifier: Notifier = NULL_NOTIFIER) -> int:
     """Settle all matchable open trades; returns the count settled."""
     if not store.available:
         return 0
@@ -44,6 +45,9 @@ def settle_once(store: Store, broker: Broker) -> int:
             broker.clear_exposure(trade.market_id)  # reaper: free the exposure slot
         log.info("Settled %s (%s): %s pnl=%.4f (%s-%s)", trade.trade_id, trade.side,
                  status, pnl, trade.home_score, trade.away_score)
+        notifier.notify_settlement(
+            event_id=trade.market_id or f"trade-{trade.trade_id}", side=trade.side,
+            status=status, pnl=pnl, home_score=trade.home_score, away_score=trade.away_score)
 
     log.info("Settled %d trades.", len(pending))
     return len(pending)
@@ -52,10 +56,11 @@ def settle_once(store: Store, broker: Broker) -> int:
 def run(settings: Settings) -> None:
     store = Store(Database(settings.db))
     broker = Broker(settings.redis)
+    notifier = build_notifier(settings)
     interval = settings.settlement_interval
     while True:
         try:
-            settle_once(store, broker)
+            settle_once(store, broker, notifier)
         except Exception as exc:  # noqa: BLE001
             log.error("Settlement loop error: %s", exc)
         time.sleep(interval)

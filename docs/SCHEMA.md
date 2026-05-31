@@ -82,7 +82,29 @@ calibration and model-evaluation tooling.
 
 ### `team_advanced_stats` — enrichment features
 Off/Def/Net rating + pace + TS%, keyed by `team_name`, refreshed by
-`make fetch-stats`. Joined by name (fuzzy `ILIKE`) during Engine enrichment.
+`make fetch-stats`. Joined by name (fuzzy `ILIKE`) during Engine enrichment. The
+`player_strength NUMERIC` column (nullable) holds a DuckDB-derived roster-strength
+scalar written by `make player-strength` ([compute_player_strength.py](../scripts/compute_player_strength.py));
+it feeds the model's `player_strength_diff` feature and is NULL/0 when not computed.
+
+> **Migration:** `config/init.sql` only runs on an empty volume. Existing
+> deployments add the column with
+> `ALTER TABLE team_advanced_stats ADD COLUMN IF NOT EXISTS player_strength NUMERIC(10,4);`
+
+### `team_strength_pit` — point-in-time roster strength
+One row per **team-game**, written by `make roster-pit`
+([compute](../scripts/precompute_roster_pit.py)) from the DuckDB player logs:
+`(team_name, game_date, season, roster_strength)`, where `roster_strength` uses only
+that team's *prior* games in the season (leakage-free). Joined by the trainer to feed
+the model's `player_strength_diff` feature; serving uses the snapshot's latest value.
+
+### Model artifacts (`models/`, not a DB table)
+`make train` writes three files the Engine's `ModelBundle` loads together:
+`win_prob_model.pkl` (the scaler+logistic Pipeline), `team_state.json` (per-team
+snapshot — Elo, last-game-date, form, **point-in-time `net_eff`/`roster`/`season`** —
+for symmetric serving with a new-season reset), and `model_meta.json`
+(the feature contract + hfa + calibration `temperature` + schema version). A schema/width mismatch makes the
+Engine abstain until `make retrain`. See [QUANT.md](QUANT.md#2-the-win-probability-model-live).
 
 ---
 
@@ -101,3 +123,59 @@ Off/Def/Net rating + pace + TS%, keyed by `team_name`, refreshed by
 
 Because every link is an `event_id` foreign key, settlement, CLV, and evaluation
 are exact joins — not substring matches.
+
+---
+
+## DuckDB analytics store
+
+Separately from the operational Postgres schema, two host-side scripts land a
+large, free NBA history into a single portable **DuckDB** file
+(`data/sportsball.duckdb`) for offline / Moneyball-style analysis. This avoids
+the running-container schema and needs no server — just the embedded file.
+
+> **Status:** this store is **parallel** to the model pipeline — `train` /
+> `retrain` still read from Postgres. It is a research dataset, not (yet) wired
+> into the Engine. Bridging it (a DuckDB-backed `Store`, or a load into Postgres
+> `events`) is a future step. See [ARCHITECTURE §5](ARCHITECTURE.md#5-known-limitations).
+
+Both ingests are idempotent (re-running upserts) and write incrementally, so a
+rate-limited run resumes cleanly. They reuse `matching.canonical_event_id`, so
+DuckDB rows share the **same `event_id`** as the Postgres `events` table.
+
+### `events` — team-level game results
+Written by [`scripts/ingest_nba_duckdb.py`](../scripts/ingest_nba_duckdb.py)
+(`leaguegamelog` at team level). One row per game; ~49K games across 40+ seasons.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `event_id` | TEXT PK | Canonical id, matches Postgres `events` |
+| `sport_id` | INT | NBA = 4 |
+| `season` | TEXT | e.g. `2024-25` |
+| `event_date` | TIMESTAMP | |
+| `home_team`, `away_team` | TEXT | |
+| `status` | TEXT | `FINAL` |
+| `home_score`, `away_score` | INT | |
+| `home_close`, `away_close` | DOUBLE | NULL (no odds source; scores train the model) |
+
+### `player_game_logs` — individual player box scores ("Moneyball")
+Written by [`scripts/ingest_player_stats_duckdb.py`](../scripts/ingest_player_stats_duckdb.py)
+(`leaguegamelog` at player level). **1,012,331 player-games** across 3,584 players
+(99.98% linked to an `event_id`),
+keyed `(player_id, game_id)` and tagged with the game's `event_id` so it joins
+straight onto `events`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `player_id`, `game_id` | BIGINT / TEXT | Composite PK |
+| `event_id` | TEXT | FK-style link to `events` (NULL only for a few unparseable matchups) |
+| `season`, `game_date` | TEXT / TIMESTAMP | |
+| `player_name`, `team_id`, `team_abbreviation`, `team_name` | | |
+| `is_home` | BOOLEAN | Derived from the MATCHUP string |
+| `wl` | TEXT | `W` / `L` |
+| box-score stats | DOUBLE | `min, fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct, oreb, dreb, reb, ast, stl, blk, tov, pf, pts, plus_minus, fantasy_pts` (older seasons NULL where unavailable) |
+
+```bash
+python scripts/ingest_nba_duckdb.py            # team results, 1983-84 .. current
+python scripts/ingest_player_stats_duckdb.py   # player box scores, same range
+# narrower: --seasons 2024-25,2025-26  |  --start 1996-97
+```

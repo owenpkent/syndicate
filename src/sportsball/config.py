@@ -64,6 +64,13 @@ class StrategyConfig:
     # ``true_prob``. This is the switch that makes "no edge" mean "no bet".
     require_model: bool = True
 
+    # Elo / feature knobs (used by the modeling pipeline, not the optimizer's
+    # search space — the optimizer still tunes only K-factor + HFA).
+    elo_mov_enabled: bool = True          # margin-of-victory multiplier on the K update
+    elo_carry: float = 0.75               # season carryover: regress toward 1500 each offseason
+    elo_offseason_gap_days: int = 90      # a gap this long triggers carryover
+    form_window: int = 10                 # rolling win% window for the "form" feature
+
     @classmethod
     def load(cls, path: str | os.PathLike = DEFAULT_SETTINGS_PATH) -> "StrategyConfig":
         try:
@@ -72,6 +79,53 @@ class StrategyConfig:
             data = {}
         known = {k: data[k] for k in data if k in cls.__dataclass_fields__}
         return cls(**known)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+@dataclass(frozen=True)
+class SlackConfig:
+    """Optional Slack integration — alerts, digest, and the approval gate.
+
+    Every field is env-sourced and optional; with nothing set the notifier is a
+    no-op and the approval gate stays disabled, so the pipeline behaves exactly
+    as it did before Slack existed. Mirrors the ``rundown_api_key`` precedent.
+    """
+
+    bot_token: str | None = field(default_factory=lambda: os.getenv("SLACK_BOT_TOKEN"))
+    app_token: str | None = field(default_factory=lambda: os.getenv("SLACK_APP_TOKEN"))
+    webhook_url: str | None = field(default_factory=lambda: os.getenv("SLACK_WEBHOOK_URL"))
+    channel: str = field(default_factory=lambda: _env("SLACK_CHANNEL", "#sportsball"))
+    require_approval: bool = field(
+        default_factory=lambda: _env_bool("SLACK_REQUIRE_APPROVAL", False)
+    )
+    approval_ev_threshold: float = field(
+        default_factory=lambda: float(_env("SLACK_APPROVAL_EV_THRESHOLD", "0.10"))
+    )
+    approval_ttl_secs: int = field(
+        default_factory=lambda: int(_env("SLACK_APPROVAL_TTL_SECS", "900"))
+    )
+
+    @staticmethod
+    def _real(token: str | None, prefix: str) -> bool:
+        return bool(token) and token != f"your_{prefix}_token_here"
+
+    def has_alerts(self) -> bool:
+        """True if one-way alerts can be sent (bot token or webhook present)."""
+        return self._real(self.bot_token, "slack_bot") or bool(self.webhook_url)
+
+    def has_socket_mode(self) -> bool:
+        """True if interactive (Approve/Reject) buttons can round-trip."""
+        return self._real(self.bot_token, "slack_bot") and self._real(self.app_token, "slack_app")
+
+    def gate_enabled(self) -> bool:
+        """The approval gate only engages with interactivity AND the flag on."""
+        return self.require_approval and self.has_socket_mode()
 
 
 @dataclass(frozen=True)
@@ -97,6 +151,7 @@ class Settings:
     rundown_api_key: str | None = field(
         default_factory=lambda: os.getenv("RUNDOWN_API_KEY")
     )
+    slack: SlackConfig = field(default_factory=SlackConfig)
 
     def has_live_rundown_key(self) -> bool:
         key = self.rundown_api_key

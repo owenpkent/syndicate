@@ -16,10 +16,13 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from datetime import date
 from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
 
 from ..logging_conf import get_logger
+from . import features as feat
+from .features import TeamSnapshot, neutral_snapshot
 
 log = get_logger("models")
 
@@ -90,28 +93,47 @@ class MonteCarloPricer:
 class TeamStat:
     net_rating: float
     pace: float
+    player_strength: float = 0.0
 
 
 @dataclass
 class ModelBundle:
-    """A trained model + ratings, loaded together for runtime prediction."""
+    """A trained model + per-team state + metadata, loaded for runtime prediction.
+
+    ``model`` is a fitted sklearn Pipeline (scaler + logistic). ``snapshots`` maps
+    team -> :class:`TeamSnapshot` (elo/last_game_date/form), reconstructed from
+    ``team_state.json``. ``meta`` carries the feature contract (hfa, feature_order,
+    schema_version) so :meth:`load` can refuse a stale-shaped artifact rather than
+    feed the model a wrong-width vector.
+    """
 
     model: object
-    ratings: dict
+    snapshots: dict
+    meta: dict
 
     @classmethod
     def load(cls, model_dir: str | Path) -> Optional["ModelBundle"]:
         model_dir = Path(model_dir)
         model_path = model_dir / "win_prob_model.pkl"
-        ratings_path = model_dir / "current_ratings.json"
-        if not (model_path.exists() and ratings_path.exists()):
-            log.info("No trained model found in %s — Engine will abstain.", model_dir)
+        state_path = model_dir / "team_state.json"
+        meta_path = model_dir / "model_meta.json"
+        if not (model_path.exists() and state_path.exists() and meta_path.exists()):
+            log.info("No (complete) model in %s — Engine will abstain.", model_dir)
             return None
         try:
+            meta = json.loads(meta_path.read_text())
+            if (meta.get("schema_version") != feat.SCHEMA_VERSION
+                    or meta.get("n_features") != feat.N_FEATURES
+                    or meta.get("feature_order") != feat.FEATURE_ORDER):
+                log.warning("Stale model artifact (schema v%s != v%s): run `make retrain`.",
+                            meta.get("schema_version"), feat.SCHEMA_VERSION)
+                return None
             model = pickle.loads(model_path.read_bytes())
-            ratings = json.loads(ratings_path.read_text())
-            log.info("Loaded model + %d team ratings.", len(ratings))
-            return cls(model=model, ratings=ratings)
+            snapshots = {team: _snapshot_from_json(d)
+                         for team, d in json.loads(state_path.read_text()).items()}
+            log.info("Loaded model + %d team snapshots (schema v%s).",
+                     len(snapshots), feat.SCHEMA_VERSION)
+            return cls(model=model, snapshots=snapshots, meta=meta)
         except Exception as exc:  # noqa: BLE001
             log.warning("Failed to load model bundle: %s", exc)
             return None
@@ -120,18 +142,51 @@ class ModelBundle:
         self,
         home_team: str,
         away_team: str,
-        home_stat: Optional[TeamStat] = None,
-        away_stat: Optional[TeamStat] = None,
+        current_date: Optional[date] = None,
+        home_stat: Optional[TeamStat] = None,  # noqa: ARG002 - kept for call compatibility
+        away_stat: Optional[TeamStat] = None,  # noqa: ARG002
     ) -> float:
-        """Probability the home team wins, with optional net-rating enrichment."""
-        r_home = self.ratings.get(home_team, 1500)
-        r_away = self.ratings.get(away_team, 1500)
-        adj_diff = (r_home + DEFAULT_HFA) - r_away
-        if home_stat and away_stat:
-            adj_diff += (home_stat.net_rating - away_stat.net_rating) * NET_RATING_TO_ELO
-        return float(self.model.predict_proba([[adj_diff]])[0][1])
+        """Probability the home team wins, from the full feature vector.
 
-    def predict_participant_prob(self, home_team, away_team, participant, **stats) -> float:
+        The net-rating and roster features are **point-in-time**: they come from
+        the team snapshot's season-to-date values, reset to 0 when the game falls
+        in a later season than the snapshot (no prior games yet). ``home_stat`` /
+        ``away_stat`` are ignored (kept only so existing callers don't break).
+        """
+        home_snap = self.snapshots.get(home_team) or neutral_snapshot()
+        away_snap = self.snapshots.get(away_team) or neutral_snapshot()
+        cur_season = feat.season_of(current_date) if current_date else None
+
+        def eff(snap):
+            stale = (cur_season is not None and snap.season is not None
+                     and snap.season != cur_season)
+            return (0.0, 0.0) if stale else (snap.net_eff, snap.roster)
+
+        h_net, h_roster = eff(home_snap)
+        a_net, a_roster = eff(away_snap)
+        row = feat.build_feature_row(
+            home_snap, away_snap, current_date, float(self.meta["hfa"]),
+            TeamStat(h_net, 0.0), TeamStat(a_net, 0.0), h_roster, a_roster,
+        )
+        p = float(self.model.predict_proba([row])[0][1])
+        # Post-hoc calibration (T defaults to 1.0 / no-op for older artifacts).
+        return feat.temperature_scale(p, float(self.meta.get("temperature", 1.0)))
+
+    def predict_participant_prob(self, home_team, away_team, participant, *,
+                                 current_date: Optional[date] = None, **stats) -> float:
         """Win probability for whichever side ``participant`` names."""
-        p_home = self.predict_home_prob(home_team, away_team, **stats)
+        p_home = self.predict_home_prob(home_team, away_team, current_date=current_date, **stats)
         return p_home if participant == home_team else 1 - p_home
+
+
+def _snapshot_from_json(d: dict) -> TeamSnapshot:
+    lgd = d.get("last_game_date")
+    return TeamSnapshot(
+        elo=float(d.get("elo", feat.NEUTRAL_ELO)),
+        last_game_date=date.fromisoformat(lgd) if lgd else None,
+        form=float(d.get("form", feat.NEUTRAL_FORM)),
+        games_played=int(d.get("games_played", 0)),
+        net_eff=float(d.get("net_eff", 0.0)),
+        roster=float(d.get("roster", 0.0)),
+        season=d.get("season"),
+    )

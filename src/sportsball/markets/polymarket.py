@@ -11,15 +11,23 @@ Field shapes verified against https://gamma-api.polymarket.com/markets
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
+from typing import Optional
 
 import requests
 
 from ..logging_conf import get_logger
+from ..matching import canonical_event_id
 
 log = get_logger("polymarket")
 
 GAMMA_MARKETS_URL = "https://gamma-api.polymarket.com/markets"
+
+# Slug-prefix -> canonical sport token. Unknown prefixes pass through unchanged
+# (still yields a consistent event_id, just won't align with an Oracle sport).
+LEAGUE_SPORT = {"nba": "nba", "nfl": "nfl", "mlb": "mlb", "nhl": "nhl"}
+_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 
 @dataclass
@@ -28,6 +36,18 @@ class PolyMarket:
     question: str
     outcomes: list[str]
     token_ids: list[str]
+
+
+@dataclass
+class GameMeta:
+    """Canonical identity for a head-to-head market, derived from a PolyMarket."""
+
+    event_id: str
+    matchup: str   # "<away> @ <home>"
+    away: str
+    home: str
+    sport: str
+    date: str      # YYYY-MM-DD
 
 
 def _as_list(value) -> list:
@@ -62,6 +82,51 @@ def token_map(markets: list[PolyMarket]) -> dict[str, tuple[str, str]]:
         for i, token in enumerate(m.token_ids):
             outcome = m.outcomes[i] if i < len(m.outcomes) else f"outcome{i}"
             mapping[token] = (m.slug, outcome)
+    return mapping
+
+
+def parse_game_market(market: PolyMarket) -> Optional[GameMeta]:
+    """Derive canonical identity from a head-to-head market, or None.
+
+    Real Gamma head-to-head markets carry both competitors directly in
+    ``outcomes`` (e.g. ``["Royal Challengers Bengaluru", "Gujarat Titans"]``) with
+    the date in the slug (``...-2026-05-31``). Futures/props are ``["Yes","No"]``
+    and are skipped. Polymarket doesn't expose home/away, so we adopt the
+    convention ``away, home = outcomes[0], outcomes[1]`` — good enough for the
+    Engine to *price* the market; cross-venue arb alignment stays best-effort.
+    """
+    outs = [o.strip() for o in market.outcomes if o and o.strip()]
+    if len(outs) != 2:
+        return None
+    if {o.lower() for o in outs} & {"yes", "no"}:
+        return None  # futures / binary props, not a game
+    date_match = _DATE_RE.search(market.slug or "")
+    if not date_match:
+        return None  # no date -> can't build a dated, alignable event_id
+    date = date_match.group(1)
+    league = (market.slug or "").split("-", 1)[0].lower()
+    sport = LEAGUE_SPORT.get(league, league)
+    away, home = outs[0], outs[1]
+    return GameMeta(
+        event_id=canonical_event_id(sport, date, away, home),
+        matchup=f"{away} @ {home}", away=away, home=home, sport=sport, date=date,
+    )
+
+
+def token_meta(markets: list[PolyMarket]) -> dict[str, tuple[str, Optional[GameMeta]]]:
+    """{token_id: (outcome_team, GameMeta|None)} for the Scout.
+
+    ``GameMeta`` is shared by both tokens of a head-to-head market (so either
+    side resolves to the same canonical game); it's ``None`` for markets we can't
+    identify (futures, undated), in which case the Scout falls back to a minimal,
+    unpriced signal.
+    """
+    mapping: dict[str, tuple[str, Optional[GameMeta]]] = {}
+    for m in markets:
+        meta = parse_game_market(m)
+        for i, token in enumerate(m.token_ids):
+            outcome = m.outcomes[i] if i < len(m.outcomes) else f"outcome{i}"
+            mapping[token] = (outcome, meta)
     return mapping
 
 

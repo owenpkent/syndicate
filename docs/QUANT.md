@@ -1,96 +1,300 @@
 # Quantitative Handbook: Project Sportsball
 
-This document provides a deep dive into the mathematical and statistical foundations of the Sportsball's trading logic.
+A deep dive into the mathematics behind Sportsball's trading logic, mapped to the
+actual implementation in [`src/sportsball/quant/`](../src/sportsball/quant/) and
+the modeling pipelines in [`src/sportsball/pipelines/`](../src/sportsball/pipelines/).
+
+> **Honesty note.** Two things are *live* on the Engine's per-signal path: the
+> **Elo → logistic** win-probability model and the **EV → Kelly → portfolio**
+> valuation chain. The **Poisson** and **Monte Carlo** routines (§5) are pricing
+> primitives that exist and are unit-tested but are **not** wired into the
+> single-market decision path today. Where a formula is aspirational or
+> unintegrated, it says so.
 
 ---
 
-## 1. Core Logic: The Value Proposition
+## 1. The algorithm, end to end
 
-The system evaluates every market signal through the lens of **Expected Value ($EV$)**.
+```text
+        OFFLINE (pipelines, on a schedule)              LIVE (Engine, per signal)
+  ┌────────────────────────────────────────┐   ┌──────────────────────────────────┐
+  events (FINAL scores)                          market_signal {odds, matchup, …}
+        │                                              │
+        ▼  walk Elo forward (MOV + carryover)          ▼  ModelBundle.predict
+  7-feature row + outcome per game                build_feature_row(...) [shared]
+        │                                              │
+        ▼  optimize K, HFA  (L-BFGS-B, log-loss)       ▼  scaler+logistic σ(·) → P_true
+  optimized_params.json                                │
+        │                                              ▼  EV = P_true·odds − 1
+        ▼  fit Pipeline(scaler, logistic)              │     (gate: EV > buffer)
+  win_prob_model.pkl + team_state.json + meta          ▼  f* = EV/(odds−1); f = c·f*
+        └──────────────► loaded as ModelBundle ◄───────┤
+                                                        ▼  PortfolioRiskManager
+                                                   (exposure ceiling + corr. penalty)
+                                                        ▼  execution_signal
+```
 
-### Expected Value ($EV$)
-The market price of a binary contract or line represents an implied probability ($P_{\text{market}}$):
+The offline half (`sportsball-optimize`, `sportsball-train`, re-run by the
+Retrainer) produces the model artifacts; the live half loads them and prices
+each incoming market. The two halves communicate only through the files in
+`models/` — the Engine hot-reloads them when the mtime changes.
 
-$$P_{\text{market}} = \frac{1}{\text{Decimal Odds}}$$
+---
 
-A trade is only considered if the system's computed **True Probability ($P_{\text{true}}$)** exceeds the market pricing:
+## 2. The win-probability model (live)
+
+`P_true` comes **only** from a trained [`ModelBundle`](../src/sportsball/quant/models.py).
+With no (or a stale-shaped) model loaded the Engine **abstains**
+(`strategy.require_model`) — it never falls back to a producer-supplied or random
+probability. The model has three pieces: an Elo rating system, a **shared
+feature builder**, and a standardizing logistic. The feature builder
+([`quant/features.py`](../src/sportsball/quant/features.py)) is the single source
+of truth called by *both* training and serving — that's what guarantees the live
+path can't drift from what was trained.
+
+### 2.1 Elo rating system (with MOV + carryover)
+
+Each team carries a rating $r$ (initialized to **1500**). The home team's
+expected score, given a home-field advantage $\text{HFA}$ in Elo points
+([`_elo.py`](../src/sportsball/pipelines/_elo.py)):
+
+$$E_{\text{home}} = \frac{1}{1 + 10^{\,(r_{\text{away}} - (r_{\text{home}} + \text{HFA}))/400}}$$
+
+After each result, ratings update by the zero-sum Elo rule, scaled by a
+**margin-of-victory** multiplier:
+
+$$r_{\text{home}}' = r_{\text{home}} + K\cdot m\cdot(S - E_{\text{home}}), \qquad m = \ln(|\Delta| + 1)\cdot\frac{2.2}{0.001\,e_w + 2.2}$$
+
+where $S \in \{1, 0.5, 0\}$ is the outcome, $\Delta$ the score margin, and $e_w$
+the winner's pre-game Elo edge. Larger blowouts move ratings more; the $e_w$
+denominator damps the favorite's auto-correlation (FiveThirtyEight's correction).
+Between seasons — detected as a per-team gap exceeding `elo_offseason_gap_days`
+(90) — ratings **mean-revert** toward 1500: $r \leftarrow 1500 + c_{\text{carry}}(r - 1500)$
+with `elo_carry` = 0.75. `walk_forward` replays history in date order, emitting the
+full feature row (§2.3) and outcome per game and returning each team's final state.
+
+### 2.2 Hyperparameter optimization
+
+$K$ and $\text{HFA}$ are not hand-picked; they are fit to history by minimizing
+**mean log-loss** over the Elo expected-scores
+([`optimize.py`](../src/sportsball/pipelines/optimize.py)):
+
+$$\mathcal{L}(K, \text{HFA}) = -\frac{1}{N}\sum_{i=1}^{N}\Big[S_i \ln p_i + (1 - S_i)\ln(1 - p_i)\Big], \quad p_i = \text{clip}(E_{\text{home},i},\, 0.001,\, 0.999)$$
+
+minimized with **L-BFGS-B** (`scipy.optimize.minimize`) over bounds
+$K \in [5, 100]$, $\text{HFA} \in [0, 200]$, starting from $(20, 50)$. The result
+is written to `optimized_params.json` and consumed by the trainer.
+
+### 2.3 The feature vector
+
+Rather than a single Elo differential, the model consumes a **7-feature** vector
+(`FEATURE_ORDER` in `features.py`), every element a *difference of per-team
+quantities* so it's symmetric and any missing input degrades to a neutral 0:
+
+| # | Feature | Meaning |
+|---|---------|---------|
+| 1 | `elo_diff_hfa` | $(r_{\text{home}} + \text{HFA}) - r_{\text{away}}$ |
+| 2 | `net_rating_diff` | home − away **point-in-time** net efficiency (season-to-date avg margin) |
+| 3 | `rest_diff` | days since each team's last game (capped at 10) |
+| 4 | `b2b_home` | 1 if home is on a back-to-back |
+| 5 | `b2b_away` | 1 if away is on a back-to-back |
+| 6 | `form_diff` | home − away rolling win% over the last `form_window` (10) games |
+| 7 | `player_strength_diff` | home − away **point-in-time** roster strength (§2.5) |
+
+Both enrichment features are **point-in-time** (season-to-date, prior games only) —
+not the current-season constants the first version used. `net_rating_diff` is
+computed inside the Elo walk from game scores (no external fetch); `player_strength_diff`
+comes from the precomputed `team_strength_pit` table. Both reset to 0 at the start of
+a new season (no prior games) — handled identically at train and serve. Net-rating is a
+**learned feature** the logistic weights, not a hardcoded `×20` nudge into the Elo diff.
+
+### 2.4 Standardizing logistic
+
+The trainer ([`train.py`](../src/sportsball/pipelines/train.py)) fits a
+`Pipeline(StandardScaler, LogisticRegression)` on the feature matrix — the scaler
+puts the disparate scales (Elo ~hundreds, form ~0–1, rest ~0–10) on equal footing
+and is persisted so serving standardizes with the same statistics:
+
+$$P_{\text{true}} = \sigma\!\Big(\beta_0 + \sum_j \beta_j\, z_j\Big),\qquad z_j = \frac{x_j - \mu_j}{\sigma_j}$$
+
+For the side named by the market, `predict_participant_prob` returns $P_{\text{true}}$
+for the home side or $1 - P_{\text{true}}$ for the away side.
+
+### 2.5 Player-derived roster strength (Moneyball)
+
+The `player_strength_diff` feature is a **point-in-time** roster strength from the
+DuckDB player logs ([`scripts/precompute_roster_pit.py`](../scripts/precompute_roster_pit.py),
+`make roster-pit`): for each team-game, the top-8 players by minutes (over the
+team's *prior* games that season) and their minutes-weighted mean per-minute
+plus-minus, written to `team_strength_pit` (one row per team-game) and joined
+leakage-free at train time; serving uses the team's latest season-to-date value
+from the snapshot. (The older `make player-strength` writes the current-season
+constant — superseded by the point-in-time version.)
+
+**Honest result:** the ablation (§2.7) shows point-in-time roster adds ~0 *beyond*
+point-in-time net-efficiency — season-to-date roster quality and team margin are
+collinear. It's kept (harmless, weight ~0) with the machinery ready for a better
+roster metric (RAPM, availability), but it is not currently a source of edge.
+
+> **Train/serve symmetry (and the HFA fix).** The same `build_feature_row` runs in
+> both paths, and `hfa` is read from the persisted `model_meta.json` rather than a
+> hardcoded constant — closing the old skew where serving used `DEFAULT_HFA=50`
+> regardless of what training optimized. Training has full forward history; serving
+> has only `team_state.json` (per-team elo, last-game date, form) + the date decoded
+> from the `event_id`. A schema-version/width guard in `ModelBundle.load` makes a
+> stale-shaped artifact **abstain** (prompting `make retrain`) rather than feed the
+> model a wrong-width vector.
+
+### 2.6 Calibration (temperature scaling)
+
+The raw logistic is **systematically over-confident out-of-sample** — on a
+chronological holdout, predicted 0.65 came back 0.58, predicted 0.75 → 0.68
+(Expected Calibration Error ≈ 0.053). Since `EV = P_true·odds − 1` and Kelly both
+trust the probability *level*, over-confidence quietly over-stakes. The trainer
+fits a single **temperature** `T` on a held-out recent tail and persists it in
+`model_meta.json`; the bundle applies it to every prediction:
+
+$$P_{\text{cal}} = \sigma\!\Big(\tfrac{1}{T}\,\operatorname{logit}(P_{\text{true}})\Big)$$
+
+`T > 1` shrinks predictions toward 0.5 (monotonic — ranking/AUC unchanged). On the
+holdout, `T ≈ 1.17` cut ECE ~26% (0.057 → 0.042) and improved Brier and log-loss.
+Older artifacts without a `temperature` key default to `T = 1.0` (no-op).
+
+### 2.7 What the features actually contribute
+
+A holdout ablation ([`scripts/measure_features.py`](../scripts/measure_features.py),
+[`model_quality.py`](../scripts/model_quality.py)) is honest about feature value:
+
+| feature set | holdout log-loss | Δ vs Elo-only |
+|---|---|---|
+| Elo only | 0.6371 | — |
+| + rest / b2b / form | 0.6317 | −0.0054 |
+| + net-eff (point-in-time) | 0.6308 | **−0.0063** |
+| + roster (point-in-time) | 0.6308 | −0.0063 |
+
+The schedule features (rest, back-to-back, form) carry most of the lift beyond Elo.
+**Point-in-time net-efficiency adds a further −0.0009** — small but real, and where
+the *current-season* version added ~0 (it was collinear with Elo and stale for old
+games). Point-in-time **roster** strength adds nothing more (collinear with net-eff);
+it's retained at weight ~0 pending a better roster metric. A sweep over
+MOV/carryover/`form_window` moved log-loss within noise, so the defaults stand —
+MOV-on is the one Elo setting that clearly helps.
+
+---
+
+## 3. Valuation and sizing (live)
+
+### 3.1 Expected value
+
+The market-implied probability of a decimal price is $P_{\text{market}} = 1/\text{Odds}$.
+A signal is valued by its per-unit expected value
+([`odds.py`](../src/sportsball/quant/odds.py)):
 
 $$EV = (P_{\text{true}} \times \text{Odds}) - 1$$
 
-*Threshold:* The system enforces a default `safety_buffer_ev` (e.g., 0.02) to account for model variance.
+The Engine emits an execution signal only when $EV > \text{safety\_buffer\_ev}$
+(default `0.02`) — a cushion against model variance, not a free parameter to chase.
 
-### Bankroll Management (Fractional Kelly)
-To maximize logarithmic growth while protecting against bankruptcy, we use the **Kelly Criterion**:
+### 3.2 Fractional Kelly
 
-$$f^* = \frac{EV}{\text{Odds} - 1}$$
+Stake is sized for logarithmic-growth optimality, then shrunk to control
+estimation error:
 
-To mitigate estimation error, we apply a **Kelly Multiplier ($c$)**:
+$$f^{*} = \frac{EV}{\text{Odds} - 1}, \qquad f_{\text{actual}} = c \cdot \max(0,\, f^{*})$$
 
-$$f_{\text{actual}} = c \times f^*$$
+with Kelly multiplier $c = \text{kelly\_multiplier}$ (default **0.25**,
+quarter-Kelly). The `max(0, ·)` means a non-positive edge never produces a
+position, and odds $\le 1$ (no payout) stake nothing.
 
-*Standard:* We typically use a Quarter-Kelly ($c=0.25$).
+### 3.3 Portfolio risk coordination
 
----
+Before the stake is committed, [`PortfolioRiskManager`](../src/sportsball/quant/portfolio.py)
+clamps it against two constraints, reading current exposure from the Redis
+`active_trades` hash:
 
-## 2. Advanced Quantitative Arsenal
+1. **Global exposure ceiling.** With aggregate open exposure $E$ and ceiling
+   $E_{\max} = \text{max\_global\_exposure\_pct}$ (default `0.15`), a stake is
+   *downsized* to the remaining headroom $\max(0,\, E_{\max} - E)$, and rejected
+   outright if there is none.
+2. **Correlation penalty.** If an open position already references the same
+   `event_id`, the stake is multiplied by
+   $\text{correlation\_penalty\_multiplier}$ (default `0.5`) — you don't want two
+   fully-sized, correlated bets on one game.
 
-### Logistic Regression
-Used to derive $P_{\text{true}}$ from raw statistical features.
-*   **Input:** Multi-dimensional feature arrays (e.g., [Home_ELO, Away_ELO, Rest_Differential]).
-*   **Output:** A calibrated probability of the binary outcome (Home Win).
-*   **Implementation:** `sklearn.linear_model.LogisticRegression`.
-
-### Gradient-Optimized Rating Systems
-A system to autonomously tune rating parameters (like Elo) against historical results.
-*   **Objective Function:** Log-Loss minimization.
-*   **Optimization Algorithm:** L-BFGS-B (via `scipy.optimize.minimize`).
-*   **Optimized Parameters:** Base K-factors, Home Field Advantage, and mean-reversion constants.
-
-### Monte Carlo Simulation
-Used to price derivative markets (Alternative Spreads, Over/Unders) where analytical solutions are complex.
-*   **Method:** 10,000+ iterations of scoring simulations using `numpy.random`.
-*   **Distributions:** Derived from offensive/defensive efficiency matrices and historical volatility.
+The surviving size (possibly 0) is what the Sniper actually fills.
 
 ---
 
-## 3. Advanced Stats Enrichment
+## 4. Cross-market arbitrage
 
-The Analytics Engine dynamically enriches signals with real-time advanced statistics to improve prediction accuracy.
+Independently of statistical edge, [`ArbitrageEngine`](../src/sportsball/quant/arbitrage.py)
+maintains a per-event book of the **best (highest) odds seen per side** across
+venues. A risk-free "lock" exists when the implied probabilities of the mutually
+exclusive outcomes sum below 1:
 
-### Net Rating Adjustment
-For NBA markets, the system retrieves Offensive and Defensive ratings from the `team_advanced_stats` table. The Elo differential is adjusted based on the Net Rating discrepancy:
+$$S = \sum_{i=1}^{n}\frac{1}{\text{Odds}_i} < 1, \qquad M = (1 - S)$$
 
-$$\text{Elo}_{\text{adj}} = (\text{Elo}_{\text{home}} + \text{HFA}) - \text{Elo}_{\text{away}} + (\text{NetRating}_{\text{diff}} \times 20)$$
-
-This allows the model to account for recent team efficiency that may not yet be reflected in the base Elo rating.
-
----
-
-## 4. Scoring Distributions (Poisson)
-
-For discrete scoring environments (Soccer, Team Totals), we model the number of scoring events ($k$) given a mean rate ($\lambda$):
-
-$$P(X=k) = \frac{\lambda^k e^{-\lambda}}{k!}$$
-
-The engine aggregates these into a joint matrix to evaluate spreads and total lines.
-
----
-
-## 5. Cross-Market Arbitrage
-
-Beyond statistical edge ($EV$), the Sportsball detects mathematical "lock" opportunities where discrepancies between venues allow for guaranteed profit.
-
-### The Arbitrage Equation
-An opportunity exists when the sum of the implied probabilities for all mutually exclusive outcomes of an event is less than 1.0:
-
-$$S = \sum_{i=1}^{n} \frac{1}{\text{Odds}_i} < 1$$
-
-The **Profit Margin** ($M$) is calculated as:
-$$M = (1 - S) \times 100\%$$
-
-### Multi-Leg Execution
-When $S < 1$, the engine constructs an `ARBITRAGE` signal requiring simultaneous execution of all $n$ legs. The capital is allocated to ensure an equal return regardless of the outcome:
+where $M$ is the guaranteed profit margin. When $S < 1$ (and both sides are
+present), the Engine emits an `ARBITRAGE`-typed signal with one leg per outcome,
+allocating capital so the return is identical regardless of result:
 
 $$\text{Allocation}_i = \frac{1/\text{Odds}_i}{S}$$
 
-*Example:* A $100 budget on an arbitrage with $S=0.95$ results in a guaranteed return of $105.26 ($5.26 profit).
+*Example:* with $S = 0.95$, a budget returns $1/0.95 \approx 1.0526\times$ — a
+5.26% locked profit. (Cross-venue arb is gated by both venues producing the same
+canonical `event_id`; see [ARCHITECTURE §5](ARCHITECTURE.md#5-known-limitations).)
+
+---
+
+## 5. Derivative-pricing primitives (not yet on the live path)
+
+These price *derivative* markets (spreads, totals) where the moneyline logistic
+isn't enough. They are implemented and unit-tested but **not** invoked by the
+Engine's current single-market loop — wiring them in is future work.
+
+### 5.1 Poisson scoring
+
+For discrete-scoring contexts, model scoring events $k$ at mean rate $\lambda$
+([`poisson.py`](../src/sportsball/quant/poisson.py)):
+
+$$P(X = k) = \frac{\lambda^{k} e^{-\lambda}}{k!}$$
+
+`joint_poisson_matrix(λ_a, λ_b)` builds the outer product
+$M_{ij} = P(A=i)\,P(B=j)$ over $0 \le i,j < 50$; summing the cells where
+$i - j > \text{spread}$ or $i + j > \text{total}$ prices the spread/total line.
+
+### 5.2 Monte Carlo
+
+[`MonteCarloPricer`](../src/sportsball/quant/models.py) simulates $N$ (default
+10,000) games by drawing each team's score from a **Gaussian**
+$\mathcal{N}(\mu, \sigma)$ and counting outcomes:
+
+$$P_{\text{ML}} = \tfrac{1}{N}\#\{A > B\}, \quad P_{\text{spread}} = \tfrac{1}{N}\#\{A - s > B\}, \quad P_{\text{over}} = \tfrac{1}{N}\#\{A + B > T\}$$
+
+The Gaussian is a deliberate simplification; a fuller version would draw from
+pace/efficiency-derived distributions, which is why this stays a primitive rather
+than a live pricer for now.
+
+---
+
+## 6. Parameter reference
+
+| Symbol | Code | Default | Where |
+|--------|------|---------|-------|
+| $K$ | `k_factor` | optimized (start 20) | Elo update step |
+| $\text{HFA}$ | `hfa` | optimized (start 50) | Elo home edge — persisted in `model_meta.json`, used identically train & serve |
+| $m$ | `elo_mov_enabled` | True | margin-of-victory multiplier |
+| $c_{\text{carry}}$ | `elo_carry` | 0.75 | season carryover toward 1500 |
+| gap | `elo_offseason_gap_days` | 90 | gap that triggers carryover |
+| $N$ | `form_window` | 10 | rolling-form window |
+| $T$ | `temperature` | fit (~1.17) | post-hoc calibration (persisted in `model_meta.json`) |
+| buffer | `safety_buffer_ev` | 0.02 | EV gate |
+| $c$ | `kelly_multiplier` | 0.25 | Kelly shrink |
+| $E_{\max}$ | `max_global_exposure_pct` | 0.15 | exposure ceiling |
+| — | `correlation_penalty_multiplier` | 0.5 | same-event penalty |
+
+Risk + Elo knobs live in `config/settings.json` ([StrategyConfig](../src/sportsball/config.py));
+$K$/HFA are optimized into `optimized_params.json` (`make optimize`). The trained
+artifacts are `models/{win_prob_model.pkl, team_state.json, model_meta.json}`
+(`make train`). `model_meta.json` carries the feature contract + hfa; a version/width
+mismatch makes the Engine abstain until you `make retrain`.

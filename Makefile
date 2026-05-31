@@ -7,8 +7,9 @@
 PYTHON=./venv/bin/python3
 PIP=$(PYTHON) -m pip
 
-.PHONY: setup test dashboard health smoke plot calibrate clv evaluate fetch-stats demo \
-        backtest backtest-viz optimize train retrain ingest-nba shell
+.PHONY: setup test dashboard health digest smoke plot calibrate clv evaluate fetch-stats demo \
+        backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
+        player-strength roster-pit eval-duckdb measure-features model-quality backtest-sim shell
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -29,6 +30,10 @@ health:
 	@echo "Checking system health..."
 	@REDIS_HOST=localhost DB_HOST=localhost $(PYTHON) -m sportsball.tools.health
 
+# Post the trailing-24h performance digest to Slack (no-op without SLACK_*).
+digest:
+	@REDIS_HOST=localhost DB_HOST=localhost $(PYTHON) -m sportsball.tools.digest
+
 # Validate the live external integrations (Gamma API, nba_api, CLOB WebSocket).
 smoke:
 	@$(PYTHON) -m sportsball.tools.smoke
@@ -43,9 +48,43 @@ train:
 retrain:
 	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.retrain
 
+# Ensure the Postgres schema exists (idempotent) + load DuckDB history -> events.
+bootstrap:
+	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.bootstrap
+
 # Free, no-API-key historical results from nba_api -> events (training data).
 ingest-nba:
 	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.ingest_nba
+
+# Persist the trained model's predictions as signals so `make evaluate` scores it.
+backfill-signals:
+	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.backfill_signals
+
+# Roster strength from the DuckDB player logs -> team_advanced_stats.player_strength.
+player-strength:
+	@DB_HOST=localhost $(PYTHON) scripts/compute_player_strength.py
+
+# Point-in-time (season-to-date) roster strength per team-game -> team_strength_pit.
+roster-pit:
+	@DB_HOST=localhost $(PYTHON) scripts/precompute_roster_pit.py
+
+# Train + out-of-sample (chronological holdout) eval against the DuckDB store,
+# no Postgres needed. Add WRITE=1 to also persist Engine-loadable artifacts.
+eval-duckdb:
+	@$(PYTHON) scripts/train_eval_duckdb.py $(if $(WRITE),--write,)
+
+# Out-of-sample feature ablation (needs Postgres team_advanced_stats for enrichment).
+measure-features:
+	@DB_HOST=localhost $(PYTHON) scripts/measure_features.py
+
+# Calibration (ECE/reliability) + Elo/feature hyperparameter sweep.
+model-quality:
+	@DB_HOST=localhost $(PYTHON) scripts/model_quality.py
+
+# Walk-forward betting backtest: ROI/win-rate/drawdown vs a synthetic market + vig.
+# ANALYZE=1 adds per-season ROI, an EV-buffer sweep, and odds-bucket breakdowns.
+backtest-sim:
+	@DB_HOST=localhost $(PYTHON) scripts/backtest.py $(if $(ANALYZE),--analyze,)
 
 # --- Visualizations & analysis (legacy scripts, Phase 2 will port these) ---
 plot:

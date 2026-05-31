@@ -19,22 +19,46 @@ Docker image; each agent is a console entrypoint.
 
 ```bash
 make setup     # venv + `pip install -e ".[tools]"`
-make test      # pytest — 71 unit tests, NO DB/Redis needed (uses in-memory fakes)
+make test      # pytest — 154 unit tests, NO DB/Redis/network needed (uses in-memory fakes)
 make backtest  # run tests/backtest_pipeline.py over mock ticks
 make demo      # seed the DB with fake events/signals/trades for the tools
 make dashboard / health / clv / evaluate / plot / calibrate / backtest-viz
 make smoke     # validate LIVE integrations (Gamma API, nba_api, CLOB WebSocket)
 make ingest-nba               # FREE real NBA history (nba_api, no key) -> events
+make bootstrap                # idempotent schema apply + load DuckDB history -> Postgres events
 make retrain                  # the modeling loop: optimize + train (Engine hot-reloads)
+make backfill-signals         # persist model predictions as signals (recent window) for evaluate
+make eval-duckdb              # out-of-sample walk-forward holdout vs DuckDB (no Postgres)
+make roster-pit               # point-in-time roster strength -> team_strength_pit
+make measure-features         # holdout feature ablation; model-quality = calibration + sweep
+make backtest-sim             # walk-forward betting backtest (ROI/win%/drawdown vs synthetic market+vig)
 
-docker compose up -d --build  # full cluster (redis, postgres, 6 agents, dashboard)
+docker compose up -d --build  # full cluster (redis, postgres, agents, dashboard, approver)
 docker compose down -v        # REQUIRED after a schema change (init.sql only runs on empty volume)
+make digest                   # post the trailing-24h Slack digest (no-op without SLACK_*)
 ```
+
+## Slack integration (optional)
+
+All Slack features are **off by default** — with no `SLACK_*` env vars the
+notifier is a no-op and the Engine pushes straight to `EXECUTION_SIGNALS`, so
+behavior is identical to pre-Slack. Config lives in `SlackConfig` (config.py),
+mirroring the `rundown_api_key` precedent. Alerts (Sniper fills, Settlement
+PnL, degraded `health`) need a bot token **or** `SLACK_WEBHOOK_URL`. The
+human-in-the-loop **approval gate** (`sportsball-approver`) needs a bot token +
+app-level token (Socket Mode — no public endpoint) **and**
+`SLACK_REQUIRE_APPROVAL=true`: high-EV signals are held in a Redis pending hash,
+posted with Approve/Reject buttons, and only forwarded to the Sniper on Approve.
+Invariants: the notifier **never raises into an agent hot path**; the Engine
+never calls Slack (it only enqueues); double-clicks/expiry are idempotent via
+`broker.pop_pending` (HDEL-wins); `EXECUTION_MODE` stays `PAPER`.
 
 Run a single test: `./venv/bin/python3 -m pytest tests/test_quant_odds.py -q`
 
 ## Architecture (see docs/ for depth)
 
+- **docs/WHITEPAPER.md** — system end-to-end: architecture, methodology, honest out-of-sample results
+- **docs/ROADMAP.md** — what it needs to measure / have / run a real edge (prioritized)
 - **docs/ARCHITECTURE.md** — topology, signal lifecycle, queue semantics, limitations
 - **docs/SCHEMA.md** — the `events`/`signals`/`trades` data model + bet lifecycle
 - **docs/OPERATIONS.md** — runbook: first run, modeling loop, DB reset, troubleshooting
@@ -47,9 +71,11 @@ Package layout (`src/sportsball/`):
 - `config.py` `db.py` `broker.py` `store.py` `matching.py` `logging_conf.py` — infra + repository
 - `quant/` — pure math (odds, poisson, models, arbitrage, portfolio); **no I/O imports**
 - `markets/` — Polymarket Gamma discovery (pure `parse_markets` + networked `fetch_markets`)
-- `agents/` — oracle, scout, engine, sniper, settlement, retrainer (each has `main()`)
+- `agents/` — oracle, scout, engine, sniper, settlement, retrainer, approver (each has `main()`)
 - `pipelines/` — optimize, train, retrain, backfill, ingest_nba (run on demand)
-- `tools/` — dashboard, health, clv, evaluate, smoke (live-integration check)
+- `tools/` — dashboard, health, clv, evaluate, smoke (live-integration check), digest
+- `notify/` — Slack: `blocks` (pure Block Kit), `slack` (`Notifier`, no-op when
+  unconfigured + error-isolating), `gate` (`ApprovalGate` routing)
 
 Events are keyed by a **canonical `event_id`** (`matching.canonical_event_id`,
 e.g. `nba_20240115_lakers_at_celtics`) so the Oracle, backfill, NBA ingester, and
@@ -94,9 +120,35 @@ Scout collapse the same game onto one row. It contains no `-` (safe in `market_i
 
 ## Status
 
-Phases 1–3 done: package refactor, normalized schema, live Polymarket discovery,
-canonical event ids, free NBA data ingest, and an automated retrain loop. Live
-integrations are validated via `make smoke` (confirmed: real Gamma markets, 1230
-nba_api games/season, CLOB socket connects) but not yet in automated CI. The main
-open item is **cross-venue arb** (depends on Polymarket sports markets exposing a
-parseable matchup). See docs/ARCHITECTURE.md §5.
+Phases 1–4 done: package refactor, normalized schema, live Polymarket discovery,
+canonical event ids, free NBA data ingest, an automated retrain loop, and the
+v0.4 Slack integration (alerts, `digest`, and the optional Socket Mode approval
+gate — all off by default). Live integrations are validated via `make smoke`
+(confirmed: real Gamma markets, 1230 nba_api games/season, CLOB socket connects)
+but not yet in automated CI. The Slack approval gate is unit-tested with injected
+fakes; its live Socket Mode round-trip needs a real workspace and hasn't been
+exercised. A separate DuckDB research store (team + player game logs, see
+docs/SCHEMA.md) is parallel to — not yet wired into — the model pipeline. The
+the Polymarket path now produces priceable, canonically-keyed signals for
+head-to-head markets (`markets/polymarket.parse_game_market`); the remaining
+open item is order-independent **cross-venue arb** alignment (Polymarket doesn't
+expose home/away). CI runs the suite on push (`.github/workflows/ci.yml`).
+`make bootstrap` rebuilds the schema non-destructively and loads DuckDB history,
+so the full Postgres loop (retrain → backfill-signals → evaluate) runs locally.
+See docs/ARCHITECTURE.md §5.
+
+The win-probability model is **v2** (schema_version 2): MOV-adjusted Elo with
+season carryover, a shared `quant/features.py` builder (7 features) used by both
+train and serve, a `Pipeline(StandardScaler, LogisticRegression)`, and a
+player-derived roster-strength feature from the DuckDB logs (`make player-strength`),
+and post-hoc **temperature calibration** (fixes out-of-sample over-confidence; `T`
+persisted in `model_meta.json`, applied in `ModelBundle`). Holdout ablation
+(`make model-quality` / `measure-features`) shows Elo + rest/b2b/form carry the
+lift; the enrichment features are now **point-in-time** (season-to-date): net-eff
+is computed in the Elo walk (adds −0.0009, where the current-season version added
+~0) and roster strength from `team_strength_pit` (collinear with net-eff → ~0,
+kept at weight ~0). Both reset at season boundaries, symmetric train/serve.
+Artifacts are `models/{win_prob_model.pkl, team_state.json, model_meta.json}`; a
+schema/width mismatch makes the Engine abstain until `make retrain`. After pulling
+these changes the shipped 1-feature model is stale — run `make retrain` to
+regenerate. See docs/QUANT.md for the algorithm.

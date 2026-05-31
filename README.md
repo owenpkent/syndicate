@@ -1,6 +1,6 @@
 # Sportsball: Autonomous Sports Analytics
 
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/owenpkent/sportsball)
+[![CI](https://github.com/owenpkent/sportsball/actions/workflows/ci.yml/badge.svg)](https://github.com/owenpkent/sportsball/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-blue)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -35,11 +35,14 @@ docker compose up -d --build
 The Engine abstains until it has a trained model. Load **real NBA history for
 free (no API key)** and train:
 ```bash
-make ingest-nba   # thousands of real games from nba_api -> events
-make retrain      # optimize Elo params + fit the win-probability model
+make bootstrap    # ensure schema (idempotent) + load DuckDB history -> events
+make ingest-nba   # (or this) thousands of real games from nba_api -> events
+make retrain      # optimize Elo params + fit the v2 win-probability model
+make eval-duckdb  # out-of-sample walk-forward holdout (Brier/log-loss, no Postgres)
 ```
 The Retrainer agent then keeps the model fresh on a schedule, and the Engine
-hot-reloads it. (For closing-line value, add `sportsball-backfill` with a
+hot-reloads it. For richer features, run `make fetch-stats` + `make player-strength`
+before `make retrain`. (For closing-line value, add `sportsball-backfill` with a
 `RUNDOWN_API_KEY`.)
 
 Validate the live data sources any time with `make smoke` (checks the Gamma API,
@@ -68,10 +71,36 @@ Professional-grade tools for system health and quantitative audit:
 
 ---
 
+## ─── Slack Integration (optional) ───
+
+Wire Sportsball into Slack for real-time alerts, a scheduled digest, and a
+human-in-the-loop approval gate. **Everything is off by default** — with no
+`SLACK_*` env vars the pipeline runs exactly as before.
+
+*   **Alerts**: the Sniper posts paper fills, Settlement posts WIN/LOSS + PnL,
+    and `make health` posts on degradation. Needs a bot token **or** an incoming
+    `SLACK_WEBHOOK_URL`.
+*   **[Daily digest](src/sportsball/tools/digest.py)**: trailing-24h PnL, open
+    exposure, trade/signal counts, and model freshness. Run with `make digest`
+    (or cron `docker compose run --rm digest`).
+*   **[Approval gate](src/sportsball/agents/approver.py)** (`sportsball-approver`):
+    set `SLACK_REQUIRE_APPROVAL=true` and high-EV signals are *suggested* in
+    Slack with Approve/Reject buttons — only Approve forwards the trade to the
+    Sniper. Uses **Socket Mode** (bot token + app-level token), so no public
+    endpoint is exposed. Unactioned suggestions auto-expire after
+    `SLACK_APPROVAL_TTL_SECS`.
+
+Configure tokens in `.env` (see `.env.example`). Scopes: bot `chat:write`;
+app-level token `connections:write` with Socket Mode enabled.
+
+---
+
 ## ─── Documentation Wiki ───
 
 For deep dives into specific system components, refer to our documentation library:
 
+*   **[White Paper](docs/WHITEPAPER.md)**: The system end to end — architecture, methodology, and the honest out-of-sample results (what works, what doesn't, and the measured limits).
+*   **[Roadmap](docs/ROADMAP.md)**: What the system needs — to *measure* a real edge, to *have* one, and to *run* live — prioritized from the measured results.
 *   **[Quantitative Handbook](docs/QUANT.md)**: Explore the mathematical engine, including $EV$ calculation, Kelly Criterion sizing, Logistic Regression, and Monte Carlo simulations.
 *   **[System Architecture](docs/ARCHITECTURE.md)**: Detailed topology of the "Cluster in a Box" design, the Redis-backed signal pipeline, message schemas, and micro-agent specifications.
 *   **[Data Model](docs/SCHEMA.md)**: The normalized `events`/`signals`/`trades` schema, entity relationships, and the lifecycle of a bet from signal to settled PnL.
@@ -132,11 +161,12 @@ image; each agent is a console entrypoint (`sportsball-oracle`, `-engine`, …).
 │   ├── config.py · db.py · broker.py · store.py · matching.py · logging_conf.py  # Infra + repository
 │   ├── [quant/](src/sportsball/quant/)            # Pure math: odds, poisson, models, arbitrage, portfolio
 │   ├── [markets/](src/sportsball/markets/)        # Polymarket Gamma discovery
-│   ├── [agents/](src/sportsball/agents/)          # oracle · scout · engine · sniper · settlement · retrainer
-│   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · retrain · backfill · ingest_nba
-│   └── [tools/](src/sportsball/tools/)            # dashboard · health · clv · evaluate · smoke
-├── [scripts/](scripts/)               # Host visualizations & stats enrichment
-└── [tests/](tests/)                   # Unit suite (71 tests) + backtest pipeline
+│   ├── [agents/](src/sportsball/agents/)          # oracle · scout · engine · sniper · settlement · retrainer · approver
+│   ├── [notify/](src/sportsball/notify/)          # Slack: blocks (pure) · slack (Notifier) · gate
+│   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · retrain · bootstrap · backfill(_signals) · ingest_nba
+│   └── [tools/](src/sportsball/tools/)            # dashboard · health · clv · evaluate · smoke · digest
+├── [scripts/](scripts/)               # Host visualizations, stats enrichment & DuckDB ingest
+└── [tests/](tests/)                   # Unit suite (154 tests) + backtest pipeline
 ```
 
 ---
@@ -166,6 +196,11 @@ All runtime behavior is driven by two files. Copy `.env.example` to `.env` and e
 | `SETTLEMENT_INTERVAL` | `60` | Settlement | Seconds between settlement sweeps. |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `sportsball_admin` / `changeme_in_env` / `market_history` | Postgres + all DB clients | Database credentials. **Change the password** before any non-local use — every agent now reads these from the environment. |
 | `REDIS_HOST` / `DB_HOST` | `redis` / `postgres` | all agents | Service hostnames (set automatically inside Compose; host-side tools default to `localhost`). |
+| `SLACK_BOT_TOKEN` / `SLACK_WEBHOOK_URL` | _(unset)_ | notifier, approver | Enable Slack alerts (bot token *or* webhook). All Slack features are off when unset. |
+| `SLACK_APP_TOKEN` | _(unset)_ | approver | App-level token for Socket Mode — required for the interactive approval gate. |
+| `SLACK_CHANNEL` | `#sportsball` | notifier | Channel for alerts/digest/suggestions. |
+| `SLACK_REQUIRE_APPROVAL` | `false` | engine, approver | When `true` (with Socket Mode), high-EV signals need Slack Approve before trading. |
+| `SLACK_APPROVAL_EV_THRESHOLD` / `SLACK_APPROVAL_TTL_SECS` | `0.10` / `900` | engine, approver | Min EV to gate; seconds before an unactioned suggestion auto-rejects. |
 
 ### Strategy parameters (`config/settings.json`)
 

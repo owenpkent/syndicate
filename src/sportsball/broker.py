@@ -27,6 +27,10 @@ log = get_logger("broker")
 MARKET_SIGNALS = "market_signals"
 EXECUTION_SIGNALS = "execution_signals"
 ACTIVE_TRADES = "active_trades"
+# Approval gate: a list the approver drains, plus a hash holding the full signal
+# (and its Slack message state) keyed by approval_id until a decision is made.
+PENDING_APPROVAL = "pending_approval"
+PENDING_HASH = "pending_approval:store"
 
 
 class Broker:
@@ -90,3 +94,30 @@ class Broker:
 
     def total_exposure(self) -> float:
         return sum(t["size"] for t in self.active_trades())
+
+    # -- approval gate (pending suggestions) ----------------------------------
+    def stash_pending(self, approval_id: str, record: dict) -> None:
+        """Persist a pending suggestion so the Socket Mode handler can find it."""
+        self.r.hset(PENDING_HASH, approval_id, json.dumps(record))
+
+    def get_pending(self, approval_id: str) -> Optional[dict]:
+        raw = self.r.hget(PENDING_HASH, approval_id)
+        return json.loads(raw) if raw else None
+
+    def pop_pending(self, approval_id: str) -> Optional[dict]:
+        """Atomically claim-and-remove a pending suggestion.
+
+        Idempotency primitive: only the caller whose ``HDEL`` actually removes
+        the field (returns 1) "owns" the decision — a double-click or a
+        poster/reaper race sees the second ``pop_pending`` return ``None``.
+        """
+        raw = self.r.hget(PENDING_HASH, approval_id)
+        if raw is None:
+            return None
+        if int(self.r.hdel(PENDING_HASH, approval_id)) != 1:
+            return None
+        return json.loads(raw)
+
+    def all_pending(self) -> list[dict]:
+        raw = self.r.hgetall(PENDING_HASH)
+        return [json.loads(v) for v in raw.values()]

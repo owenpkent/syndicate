@@ -84,7 +84,33 @@ class Store:
              home_score, away_score, home_close, away_close),
         )
 
+    def final_events(self, since=None) -> list[tuple]:
+        """(event_id, home_team, away_team, event_date) for graded games.
+
+        ``since`` (a timestamp) restricts to recent games — the regime where the
+        model's current team_state snapshot is actually valid.
+        """
+        if since is not None:
+            return self.db.query(
+                "SELECT event_id, home_team, away_team, event_date FROM events "
+                "WHERE status = 'FINAL' AND home_score IS NOT NULL AND event_date >= %s",
+                (since,),
+            )
+        return self.db.query(
+            "SELECT event_id, home_team, away_team, event_date FROM events "
+            "WHERE status = 'FINAL' AND home_score IS NOT NULL"
+        )
+
+    def max_event_date(self):
+        return self.db.query_one(
+            "SELECT max(event_date) FROM events WHERE status = 'FINAL' AND home_score IS NOT NULL"
+        )
+
     # -- signals --------------------------------------------------------------
+    def clear_signals(self, source: str) -> None:
+        """Delete signals from one source (so a backfill is idempotent)."""
+        self.db.execute("DELETE FROM signals WHERE source = %s", (source,))
+
     def record_signal(self, event_id, side, source, odds, true_prob, ev) -> None:
         self.db.execute(
             "INSERT INTO signals (event_id, side, source, odds, true_prob, ev) "
@@ -141,9 +167,47 @@ class Store:
             """
         )
 
+    def digest_counts(self, window_hours: int = 24) -> dict:
+        """Activity over the trailing window for the daily digest.
+
+        Realized PnL and settled count use ``settled_ts``; trade/signal counts
+        use their creation timestamps. All in one round trip.
+        """
+        row = self.db.query_one(
+            """
+            SELECT
+              COALESCE((SELECT SUM(pnl) FROM trades
+                        WHERE settled_ts >= now() - make_interval(hours => %s)), 0),
+              (SELECT COUNT(*) FROM trades
+                        WHERE settled_ts >= now() - make_interval(hours => %s)),
+              (SELECT COUNT(*) FROM trades
+                        WHERE executed_ts >= now() - make_interval(hours => %s)),
+              (SELECT COUNT(*) FROM signals
+                        WHERE ts >= now() - make_interval(hours => %s))
+            """,
+            (window_hours, window_hours, window_hours, window_hours),
+        )
+        pnl, settled, trades, signals = row if row else (0, 0, 0, 0)
+        return {"realized_pnl": float(pnl or 0), "settled": int(settled or 0),
+                "trades": int(trades or 0), "signals": int(signals or 0)}
+
     # -- team stats -----------------------------------------------------------
     def team_stat(self, team_name: str):
+        """(net_rating, pace, player_strength) for a team, or None."""
         return self.db.query_one(
-            "SELECT net_rating, pace FROM team_advanced_stats WHERE team_name ILIKE %s LIMIT 1",
+            "SELECT net_rating, pace, player_strength FROM team_advanced_stats "
+            "WHERE team_name ILIKE %s LIMIT 1",
             (f"%{team_name}%",),
+        )
+
+    def team_stats_all(self) -> list[tuple]:
+        """(team_name, net_rating, pace, player_strength) for every team."""
+        return self.db.query(
+            "SELECT team_name, net_rating, pace, player_strength FROM team_advanced_stats"
+        )
+
+    def roster_pit_all(self) -> list[tuple]:
+        """(team_name, game_date, roster_strength) point-in-time, every team-game."""
+        return self.db.query(
+            "SELECT team_name, game_date, roster_strength FROM team_strength_pit"
         )

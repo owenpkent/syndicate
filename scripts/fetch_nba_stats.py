@@ -37,9 +37,14 @@ def fetch_and_store_stats():
                     net_rating NUMERIC(10, 2),
                     pace NUMERIC(10, 2),
                     ts_pct NUMERIC(10, 4),
+                    player_strength NUMERIC(10, 4),
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # player_strength is owned by scripts/compute_player_strength.py; ensure
+            # the column exists on pre-existing tables (this script doesn't write it).
+            cur.execute("ALTER TABLE team_advanced_stats "
+                        "ADD COLUMN IF NOT EXISTS player_strength NUMERIC(10, 4)")
             
             # Prepare data for insertion
             records = []

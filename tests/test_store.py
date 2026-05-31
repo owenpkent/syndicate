@@ -43,3 +43,19 @@ class TestStoreDML:
         pending = store.pending_settlements()
         assert pending == [PendingTrade(*row)]
         assert pending[0].market_id == "MOCK-E1-X"
+
+
+class TestTeamStats:
+    def test_team_stat_returns_three_tuple(self):
+        store = Store(FakeDB(available=True, one=(5.0, 100.0, 0.42)))
+        assert store.team_stat("Celtics") == (5.0, 100.0, 0.42)
+
+    def test_team_stats_all_returns_rows(self):
+        rows = [("Celtics", 5.0, 100.0, 0.42), ("Lakers", -2.0, 99.0, None)]
+        store = Store(FakeDB(available=True, rows=rows))
+        assert store.team_stats_all() == rows
+
+    def test_roster_pit_all_returns_rows(self):
+        rows = [("Celtics", "2024-10-01", 0.3), ("Lakers", "2024-10-01", -0.1)]
+        store = Store(FakeDB(available=True, rows=rows))
+        assert store.roster_pit_all() == rows

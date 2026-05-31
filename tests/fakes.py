@@ -55,8 +55,11 @@ class FakeRedis:
     def hset(self, name, key, value):
         self.hashes[name][key] = str(value)
 
+    def hget(self, name, key):
+        return self.hashes[name].get(key)
+
     def hdel(self, name, key):
-        self.hashes[name].pop(key, None)
+        return 1 if self.hashes[name].pop(key, None) is not None else 0
 
     def hgetall(self, name):
         return dict(self.hashes[name])
@@ -69,6 +72,7 @@ class FakeBroker:
         self.pushed: dict[str, list] = defaultdict(list)
         self._exposure: dict[str, float] = {}
         self.cleared: list[str] = []
+        self._pending: dict[str, dict] = {}
 
     def push(self, queue, payload):
         self.pushed[queue].append(payload)
@@ -85,6 +89,43 @@ class FakeBroker:
 
     def total_exposure(self):
         return sum(self._exposure.values())
+
+    # approval gate parity
+    def stash_pending(self, approval_id, record):
+        self._pending[approval_id] = record
+
+    def get_pending(self, approval_id):
+        return self._pending.get(approval_id)
+
+    def pop_pending(self, approval_id):
+        return self._pending.pop(approval_id, None)
+
+    def all_pending(self):
+        return list(self._pending.values())
+
+
+class FakeSlackClient:
+    """Stand-in for slack_sdk.WebClient: records calls; can simulate failures."""
+
+    def __init__(self, raise_on=None):
+        self.raise_on = set(raise_on or [])
+        self.posts: list[dict] = []
+        self.updates: list[dict] = []
+        self._ts = 0
+
+    def chat_postMessage(self, channel, blocks, text):
+        if "post" in self.raise_on:
+            raise RuntimeError("boom")
+        self._ts += 1
+        ts = f"{self._ts}.0"
+        self.posts.append({"channel": channel, "blocks": blocks, "text": text, "ts": ts})
+        return {"ts": ts}
+
+    def chat_update(self, channel, ts, blocks, text):
+        if "update" in self.raise_on:
+            raise RuntimeError("boom")
+        self.updates.append({"channel": channel, "ts": ts, "blocks": blocks, "text": text})
+        return {"ts": ts}
 
 
 class FakeDB:
@@ -119,4 +160,7 @@ class FakeBundle:
         self.prob = prob
 
     def predict_participant_prob(self, home_team, away_team, participant, **stats):
+        return self.prob
+
+    def predict_home_prob(self, home_team, away_team, **stats):
         return self.prob

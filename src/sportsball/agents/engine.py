@@ -23,9 +23,11 @@ from ..broker import Broker, EXECUTION_SIGNALS, MARKET_SIGNALS
 from ..config import Settings, load_settings
 from ..db import Database
 from ..logging_conf import get_logger
+from ..matching import parse_event_date
 from ..quant.arbitrage import ArbitrageEngine
 from ..quant.models import ModelBundle, TeamStat
 from ..quant.odds import calculate_ev, calculate_kelly_fraction
+from ..notify.gate import ApprovalGate
 from ..quant.portfolio import PortfolioRiskManager
 from ..store import HOME, Store, parse_market_id, side_for
 
@@ -59,7 +61,11 @@ def _team_stat(store: Store, team_name: str) -> Optional[TeamStat]:
         row = store.team_stat(team_name)
     except Exception:  # noqa: BLE001 - table may be empty/absent
         return None
-    return TeamStat(net_rating=float(row[0]), pace=float(row[1])) if row else None
+    if not row:
+        return None
+    # row is (net_rating, pace, player_strength); player_strength may be NULL.
+    ps = float(row[2]) if len(row) > 2 and row[2] is not None else 0.0
+    return TeamStat(net_rating=float(row[0]), pace=float(row[1]), player_strength=ps)
 
 
 def model_probability(bundle: ModelBundle, store: Store, metadata: dict) -> Optional[float]:
@@ -68,13 +74,16 @@ def model_probability(bundle: ModelBundle, store: Store, metadata: dict) -> Opti
     if not teams or not participant:
         return None
     home, away = teams
+    # Date drives the rest / back-to-back features; decode it from the canonical
+    # event_id (None -> those features go neutral, the rest still price).
+    current_date = parse_event_date(metadata.get("event_id", ""))
     return bundle.predict_participant_prob(
-        home, away, participant,
+        home, away, participant, current_date=current_date,
         home_stat=_team_stat(store, home), away_stat=_team_stat(store, away),
     )
 
 
-def process_signal(data: dict, *, bundle, store, broker, arb, strategy) -> None:
+def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=None) -> None:
     odds = data.get("odds")
     market_id = data.get("market_id", "unknown")
     metadata = data.get("metadata", {})
@@ -133,11 +142,18 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy) -> None:
         return
 
     log.info("[SIGNAL] %s | EV %.4f | size %.4f", market_id, ev, sized)
-    broker.push(EXECUTION_SIGNALS, {
+    exec_signal = {
         "market_id": market_id, "event_id": event_id or parse_market_id(market_id)[1],
         "side": side, "home_team": home, "away_team": away,
         "source": metadata.get("source"), "ev": ev, "fraction": sized, "odds": odds,
-    })
+    }
+    # Human-in-the-loop: high-EV signals are *suggested* in Slack and only reach
+    # the Sniper on Approve. With no gate (default) behavior is unchanged.
+    if gate is not None and gate.should_gate(ev):
+        approval_id = gate.enqueue(exec_signal)
+        log.info("[GATE] %s held for approval (%s)", market_id, approval_id)
+    else:
+        broker.push(EXECUTION_SIGNALS, exec_signal)
 
 
 def run(settings: Settings) -> None:
@@ -148,8 +164,9 @@ def run(settings: Settings) -> None:
     model_mtime = _model_mtime()
     arb = ArbitrageEngine()
     strategy = settings.strategy
-    log.info("Engine monitoring '%s' (EV buffer %.3f, require_model=%s)",
-             MARKET_SIGNALS, strategy.safety_buffer_ev, strategy.require_model)
+    gate = ApprovalGate(broker, settings.slack) if settings.slack.gate_enabled() else None
+    log.info("Engine monitoring '%s' (EV buffer %.3f, require_model=%s, approval_gate=%s)",
+             MARKET_SIGNALS, strategy.safety_buffer_ev, strategy.require_model, gate is not None)
 
     for raw, data in broker.reliable_consume(MARKET_SIGNALS, INFLIGHT):
         # Hot-reload the model if the retrainer has written a newer one.
@@ -159,7 +176,8 @@ def run(settings: Settings) -> None:
             bundle = ModelBundle.load(MODEL_DIR) or bundle
             model_mtime = current_mtime
         try:
-            process_signal(data, bundle=bundle, store=store, broker=broker, arb=arb, strategy=strategy)
+            process_signal(data, bundle=bundle, store=store, broker=broker, arb=arb,
+                           strategy=strategy, gate=gate)
         except Exception as exc:  # noqa: BLE001 - never let one bad signal kill the loop
             log.error("Error processing signal: %s", exc)
         finally:

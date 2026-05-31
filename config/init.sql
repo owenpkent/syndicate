@@ -65,13 +65,29 @@ CREATE TABLE IF NOT EXISTS trades (
 -- team_advanced_stats: efficiency metrics for Engine enrichment.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS team_advanced_stats (
-    team_name    TEXT PRIMARY KEY,
-    off_rating   NUMERIC(10, 2),
-    def_rating   NUMERIC(10, 2),
-    net_rating   NUMERIC(10, 2),
-    pace         NUMERIC(10, 2),
-    ts_pct       NUMERIC(10, 4),
-    last_updated TIMESTAMPTZ DEFAULT now()
+    team_name       TEXT PRIMARY KEY,
+    off_rating      NUMERIC(10, 2),
+    def_rating      NUMERIC(10, 2),
+    net_rating      NUMERIC(10, 2),
+    pace            NUMERIC(10, 2),
+    ts_pct          NUMERIC(10, 4),
+    player_strength NUMERIC(10, 4),   -- roster strength from DuckDB player logs (scripts/compute_player_strength.py)
+    last_updated    TIMESTAMPTZ DEFAULT now()
+);
+-- init.sql only runs on an EMPTY data dir. Existing deployments add the column with:
+--   ALTER TABLE team_advanced_stats ADD COLUMN IF NOT EXISTS player_strength NUMERIC(10, 4);
+
+-- ---------------------------------------------------------------------------
+-- team_strength_pit: point-in-time (season-to-date) roster strength per team-game,
+-- precomputed from the DuckDB player logs (scripts/precompute_roster_pit.py). Feeds
+-- the model's player_strength_diff feature without leakage (prior games only).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS team_strength_pit (
+    team_name       TEXT,
+    game_date       TIMESTAMPTZ,
+    season          INTEGER,
+    roster_strength NUMERIC(10, 4),
+    PRIMARY KEY (team_name, game_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_status ON events (status);

@@ -17,6 +17,7 @@ dependencies = [
     "scikit-learn>=1.3",
     "requests>=2.31",
     "websockets>=12.0",
+    "slack_sdk>=3.27",
 ]
 
 [project.optional-dependencies]
@@ -32,8 +33,10 @@ sportsball-engine = "sportsball.agents.engine:main"
 sportsball-sniper = "sportsball.agents.sniper:main"
 sportsball-settlement = "sportsball.agents.settlement:main"
 sportsball-retrainer = "sportsball.agents.retrainer:main"
+sportsball-approver = "sportsball.agents.approver:main"
 sportsball-dashboard = "sportsball.tools.dashboard:main"
 sportsball-health = "sportsball.tools.health:main"
+sportsball-digest = "sportsball.tools.digest:main"
 sportsball-clv = "sportsball.tools.clv:main"
 sportsball-evaluate = "sportsball.tools.evaluate:main"
 sportsball-smoke = "sportsball.tools.smoke:main"
@@ -41,6 +44,8 @@ sportsball-train = "sportsball.pipelines.train:main"
 sportsball-optimize = "sportsball.pipelines.optimize:main"
 sportsball-retrain = "sportsball.pipelines.retrain:main"
 sportsball-backfill = "sportsball.pipelines.backfill:main"
+sportsball-backfill-signals = "sportsball.pipelines.backfill_signals:main"
+sportsball-bootstrap = "sportsball.pipelines.bootstrap:main"
 sportsball-ingest-nba = "sportsball.pipelines.ingest_nba:main"
 
 [tool.setuptools.packages.find]

@@ -89,9 +89,25 @@ services:
       - RETRAIN_INTERVAL=86400
     command: ["sportsball-retrainer"]
 
+  # Human-in-the-loop approval gate. No-ops without SLACK_BOT_TOKEN +
+  # SLACK_APP_TOKEN (Socket Mode), which arrive via env_file from the anchor.
+  approver:
+    <<: *app
+    container_name: agent_approver
+    depends_on: [redis]
+    command: ["sportsball-approver"]
+
   dashboard:
     <<: *app
     container_name: sportsball_dashboard
     depends_on: [postgres]
     restart: "no"
     command: ["sportsball-dashboard"]
+
+  # Run on demand / via cron: `docker compose run --rm digest`.
+  digest:
+    <<: *app
+    container_name: sportsball_digest
+    depends_on: [postgres, redis]
+    restart: "no"
+    command: ["sportsball-digest"]

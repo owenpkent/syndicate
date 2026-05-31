@@ -1,0 +1,1 @@
+{"schema_version": 2, "feature_order": ["elo_diff_hfa", "net_rating_diff", "rest_diff", "b2b_home", "b2b_away", "form_diff", "player_strength_diff"], "n_features": 7, "hfa": 83.72444478910195, "k_factor": 9.883849805085031, "temperature": 1.1730024525794933, "mov_enabled": true, "carry": 0.75, "gap_days": 90, "form_window": 10}

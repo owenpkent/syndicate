@@ -26,7 +26,7 @@ import websockets
 from ..broker import MARKET_SIGNALS
 from ..config import RedisConfig
 from ..logging_conf import get_logger
-from ..markets.polymarket import fetch_markets, token_map
+from ..markets.polymarket import GameMeta, fetch_markets, token_meta
 
 log = get_logger("scout")
 
@@ -42,8 +42,15 @@ def _best(levels: list[dict], side: str) -> float | None:
     return max(prices) if side == "bid" else min(prices)
 
 
-def parse_book(data: dict, labels: dict[str, tuple[str, str]] | None = None) -> dict | None:
-    """Translate a CLOB ``book`` message into a market signal, or None."""
+def parse_book(data: dict, labels: dict[str, tuple[str, GameMeta | None]] | None = None) -> dict | None:
+    """Translate a CLOB ``book`` message into a market signal, or None.
+
+    When the token resolves to a :class:`GameMeta` (an identified head-to-head
+    game) the signal carries the canonical ``event_id``, ``matchup`` and
+    ``participant`` so the Engine can *price* it via the model and it aligns with
+    the Oracle/Settlement contract. Otherwise it falls back to a minimal,
+    unpriced signal (the Engine abstains), preserving today's behavior.
+    """
     if data.get("event_type") != "book":
         return None
     asset_id = data.get("asset_id")
@@ -54,24 +61,34 @@ def parse_book(data: dict, labels: dict[str, tuple[str, str]] | None = None) -> 
     mid = (best_bid + best_ask) / 2
     if mid <= 0:
         return None
-    slug, outcome = (labels or {}).get(asset_id, ("", ""))
+    outcome, meta = (labels or {}).get(asset_id, ("", None))
+    odds = round(1 / mid, 4)
+    prices = {"best_bid": best_bid, "best_ask": best_ask, "mid_implied_prob": round(mid, 4)}
+
+    if meta is not None:
+        # Identified game: priceable + canonically keyed.
+        return {
+            "market_id": f"POLY-{meta.event_id}-{outcome}",
+            "odds": odds,
+            "metadata": {"source": "Polymarket", "event_id": meta.event_id,
+                         "sport": meta.sport, "matchup": meta.matchup,
+                         "participant": outcome, "outcome": outcome, **prices},
+        }
     return {
         "market_id": f"POLY-{asset_id}-{outcome or 'NA'}",
-        "odds": round(1 / mid, 4),
-        "metadata": {"source": "Polymarket", "slug": slug, "outcome": outcome,
-                     "best_bid": best_bid, "best_ask": best_ask,
-                     "mid_implied_prob": round(mid, 4)},
+        "odds": odds,
+        "metadata": {"source": "Polymarket", "outcome": outcome, **prices},
     }
 
 
-def resolve_asset_ids() -> tuple[list[str], dict[str, tuple[str, str]]]:
-    """Asset ids to watch + their {token: (slug, outcome)} labels."""
+def resolve_asset_ids() -> tuple[list[str], dict[str, tuple[str, GameMeta | None]]]:
+    """Asset ids to watch + their {token: (outcome_team, GameMeta|None)} labels."""
     override = os.getenv("SCOUT_ASSET_IDS")
     if override:
         ids = [a.strip() for a in override.split(",") if a.strip()]
         return ids, {}
     markets = fetch_markets(limit=DISCOVERY_LIMIT)
-    labels = token_map(markets)
+    labels = token_meta(markets)
     return list(labels.keys()), labels
 
 

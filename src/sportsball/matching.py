@@ -64,3 +64,21 @@ def canonical_event_id(sport: str, when, away_team: str, home_team: str) -> str:
     ``nba_20240115_lakers_at_celtics``.
     """
     return f"{_slug(sport)}_{_date_str(when)}_{normalize_team(away_team)}_at_{normalize_team(home_team)}"
+
+
+def parse_event_date(event_id: str) -> date | None:
+    """Inverse of the date token in :func:`canonical_event_id`.
+
+    ``nba_20240115_lakers_at_celtics`` -> ``date(2024, 1, 15)``. Returns ``None``
+    for any id whose second ``_``-segment isn't a valid ``YYYYMMDD`` (e.g. a
+    non-canonical id from another source), so callers degrade gracefully.
+    """
+    if not event_id:
+        return None
+    parts = event_id.split("_")
+    if len(parts) < 2 or not re.fullmatch(r"\d{8}", parts[1]):
+        return None
+    try:
+        return datetime.strptime(parts[1], "%Y%m%d").date()
+    except ValueError:
+        return None

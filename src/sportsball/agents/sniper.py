@@ -13,6 +13,7 @@ from ..broker import Broker, EXECUTION_SIGNALS
 from ..config import Settings, load_settings
 from ..db import Database
 from ..logging_conf import get_logger
+from ..notify import NULL_NOTIFIER, Notifier, build_notifier
 from ..store import Store, parse_market_id
 
 log = get_logger("sniper")
@@ -45,7 +46,7 @@ def handle_arbitrage(data: dict, store: Store) -> None:
 
 
 def handle_value(data: dict, *, mode: str, tolerance: float, store: Store, broker: Broker,
-                 rng: random.Random) -> None:
+                 rng: random.Random, notifier: Notifier = NULL_NOTIFIER) -> None:
     market_id, odds, fraction = data["market_id"], data["odds"], data["fraction"]
     event_id, side, source = data.get("event_id"), data.get("side", "HOME"), data.get("source")
     log.info("[TARGET] %s | odds %s | size %.4f", market_id, odds, fraction)
@@ -61,6 +62,7 @@ def handle_value(data: dict, *, mode: str, tolerance: float, store: Store, broke
         broker.set_exposure(market_id, fraction)
         if store.available and event_id:
             store.record_trade(event_id, side, source, final, fraction, "OPEN", market_id=market_id)
+        notifier.notify_fill(data, final)
     else:
         log.info("[EXECUTE] REJECTED %s | %s", market_id, result["reason"])
         if store.available and event_id:
@@ -73,6 +75,7 @@ def run(settings: Settings) -> None:
     store.db.connect()
     rng = random.Random()
     mode = settings.execution_mode
+    notifier = build_notifier(settings)
     log.info("Sniper: mode=%s, slippage tolerance=%s", mode, settings.slippage_tolerance)
 
     for raw, data in broker.reliable_consume(EXECUTION_SIGNALS, INFLIGHT):
@@ -81,7 +84,7 @@ def run(settings: Settings) -> None:
                 handle_arbitrage(data, store)
             else:
                 handle_value(data, mode=mode, tolerance=settings.slippage_tolerance,
-                             store=store, broker=broker, rng=rng)
+                             store=store, broker=broker, rng=rng, notifier=notifier)
         except Exception as exc:  # noqa: BLE001
             log.error("Sniper error: %s", exc)
         finally:
