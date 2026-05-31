@@ -23,7 +23,7 @@ from ..broker import Broker, EXECUTION_SIGNALS, MARKET_SIGNALS
 from ..config import Settings, load_settings
 from ..db import Database
 from ..logging_conf import get_logger
-from ..matching import parse_event_date
+from ..matching import normalize_team, parse_event_date
 from ..quant.arbitrage import ArbitrageEngine
 from ..quant.models import ModelBundle, TeamStat
 from ..quant.odds import calculate_ev, calculate_kelly_fraction
@@ -119,6 +119,21 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
     home, away = teams
     participant = metadata["participant"]
     side = side_for(participant, home)
+
+    # 2b. Cross-book line shopping. Bet the best number any venue is offering on
+    #     *this exact team* across the matchup book (strictly >= the incoming
+    #     quote). For retail this best-line execution is a more reliable edge than
+    #     out-predicting the closer. event_id/side stay the canonical signal's, so
+    #     settlement is unaffected — only the price (hence EV and size) improves.
+    exec_source = metadata.get("source")
+    exec_market_id = market_id
+    if arb_key is not None:
+        best = arb.best(arb_key, normalize_team(participant))
+        if best and best["odds"] > odds:
+            log.info("[LINE SHOP] %s | %s @ %.4f -> %s @ %.4f",
+                     participant, exec_source, odds, best["source"], best["odds"])
+            odds, exec_source, exec_market_id = best["odds"], best["source"], best["market_id"]
+
     ev = calculate_ev(true_prob, odds)
 
     # 3. Persist the evaluation (ensure the event row exists first for the FK).
@@ -146,9 +161,9 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
 
     log.info("[SIGNAL] %s | EV %.4f | size %.4f", market_id, ev, sized)
     exec_signal = {
-        "market_id": market_id, "event_id": event_id or parse_market_id(market_id)[1],
+        "market_id": exec_market_id, "event_id": event_id or parse_market_id(market_id)[1],
         "side": side, "home_team": home, "away_team": away,
-        "source": metadata.get("source"), "ev": ev, "fraction": sized, "odds": odds,
+        "source": exec_source, "ev": ev, "fraction": sized, "odds": odds,
     }
     # Human-in-the-loop: high-EV signals are *suggested* in Slack and only reach
     # the Sniper on Approve. With no gate (default) behavior is unchanged.

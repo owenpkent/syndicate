@@ -12,11 +12,11 @@ from fakes import FakeBroker, FakeBundle, FakeDB
 STRAT = StrategyConfig(safety_buffer_ev=0.02, kelly_multiplier=0.25, require_model=True)
 
 
-def _signal(market_id="MOCK-E1-Celtics", odds=2.0, participant="Celtics"):
+def _signal(market_id="MOCK-E1-Celtics", odds=2.0, participant="Celtics", source="MOCK"):
     return {
         "market_id": market_id,
         "odds": odds,
-        "metadata": {"source": "MOCK", "matchup": "Lakers @ Celtics", "participant": participant},
+        "metadata": {"source": source, "matchup": "Lakers @ Celtics", "participant": participant},
     }
 
 
@@ -59,6 +59,37 @@ class TestValueSignal:
         broker, store = _run(_signal(odds=2.0), bundle=FakeBundle(0.5), db=FakeDB(available=True))
         assert broker.pushed[EXECUTION_SIGNALS] == []
         assert any("INSERT INTO signals" in s for s, _ in store.db.executed)
+
+
+class TestLineShopping:
+    def test_bets_best_available_number_across_venues(self):
+        # Same game/side quoted by two books; the Engine should price and emit
+        # against the better (higher) number, not whichever arrived last.
+        arb, broker = ArbitrageEngine(), FakeBroker()
+        _run(_signal("BOOKA-E1-Celtics", odds=1.91, participant="Celtics", source="BOOKA"),
+             bundle=FakeBundle(0.6), broker=broker, arb=arb)
+        _run(_signal("BOOKB-E1-Celtics", odds=2.05, participant="Celtics", source="BOOKB"),
+             bundle=FakeBundle(0.6), broker=broker, arb=arb)
+        values = [m for m in broker.pushed[EXECUTION_SIGNALS] if m.get("type") != "ARBITRAGE"]
+        # The second evaluation sees the best standing number (2.05 from BOOKB).
+        last = values[-1]
+        assert last["odds"] == pytest.approx(2.05)
+        assert last["source"] == "BOOKB"
+        assert last["market_id"] == "BOOKB-E1-Celtics"
+        # event_id stays canonical regardless of which venue's price we took.
+        assert last["event_id"] == "E1"
+
+    def test_upgrades_to_better_prior_quote(self):
+        # A great price arrives first, a worse one second; the second evaluation
+        # must shop back up to the better standing number.
+        arb, broker = ArbitrageEngine(), FakeBroker()
+        _run(_signal("BOOKB-E1-Celtics", odds=2.20, participant="Celtics", source="BOOKB"),
+             bundle=FakeBundle(0.6), broker=broker, arb=arb)
+        _run(_signal("BOOKA-E1-Celtics", odds=1.91, participant="Celtics", source="BOOKA"),
+             bundle=FakeBundle(0.6), broker=broker, arb=arb)
+        last = [m for m in broker.pushed[EXECUTION_SIGNALS] if m.get("type") != "ARBITRAGE"][-1]
+        assert last["odds"] == pytest.approx(2.20)
+        assert last["source"] == "BOOKB"
 
 
 class TestArbitrage:
