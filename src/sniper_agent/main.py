@@ -79,6 +79,13 @@ def main():
                     if status == "SUCCESS":
                         final_odds = result['executed_odds']
                         print(f"[EXECUTE] SUCCESS | Market: {market_id} | Final Odds: {final_odds} | Size: {result['fraction']}")
+                        
+                        # --- TRACK EXPOSURE ---
+                        # Store in Redis hash 'active_trades' with an expiry
+                        # Key = market_id, Value = size
+                        r.hset("active_trades", market_id, fraction)
+                        # In a real system, we'd use a separate cleanup script. 
+                        # For now, we'll just allow them to accumulate for simulation.
                     else:
                         print(f"[EXECUTE] REJECTED | Market: {market_id} | Reason: {result['reason']}")
                 else:

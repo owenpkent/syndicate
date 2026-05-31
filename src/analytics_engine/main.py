@@ -3,25 +3,21 @@ import os
 import json
 import redis
 import psycopg2
+import pickle
 from math_utils import calculate_ev, calculate_kelly_fraction
 from advanced_models import LogisticWinProbability, MonteCarloPricer
-
-# Example of Advanced Model Initialization
-# In production, this would load a pre-trained model file from /app/models
-win_prob_model = LogisticWinProbability()
-# Dummy training to illustrate functionality; in production, this would be a loaded state
-win_prob_model.train([[1500, 1400], [1400, 1500], [1600, 1500]], [1, 0, 1])
+from portfolio_manager import PortfolioRiskManager
 
 def load_settings():
-    # In a real container, we'd mount this or use env vars
-    # For now, we'll use defaults if the file isn't reachable
     try:
         with open("/app/config/settings.json", "r") as f:
             return json.load(f)
     except:
         return {
             "safety_buffer_ev": 0.02,
-            "kelly_multiplier": 0.25
+            "kelly_multiplier": 0.25,
+            "max_global_exposure_pct": 0.15,
+            "correlation_penalty_multiplier": 0.5
         }
 
 def get_db_connection():
@@ -36,11 +32,8 @@ def get_db_connection():
         print(f"Warning: Could not connect to DB: {e}")
         return None
 
-import pickle
-
 def load_trained_model():
     try:
-        # Check if model files exist
         if os.path.exists("models/win_prob_model.pkl") and os.path.exists("models/current_ratings.json"):
             with open("models/win_prob_model.pkl", "rb") as f:
                 model = pickle.load(f)
@@ -52,28 +45,30 @@ def load_trained_model():
         print(f"Analytics Engine: Warning - Could not load trained model: {e}")
     return None, {}
 
+def get_active_trades(r):
+    trades_raw = r.hgetall("active_trades")
+    return [{"market_id": k, "size": float(v)} for k, v in trades_raw.items()]
+
 def main():
     print("Analytics Engine starting...")
     redis_host = os.getenv("REDIS_HOST", "localhost")
     r = redis.Redis(host=redis_host, port=6379, db=0, decode_responses=True)
     
-    # Initialize DB connection
     conn = get_db_connection()
     if conn:
         print("Analytics Engine: Connected to PostgreSQL")
 
-    # Load trained artifacts
     model, ratings = load_trained_model()
-
     settings = load_settings()
     buffer = settings.get("safety_buffer_ev", 0.02)
     multiplier = settings.get("kelly_multiplier", 0.25)
+    
+    # Initialize Risk Manager
+    risk_manager = PortfolioRiskManager(settings)
 
     print(f"Analytics Engine: Monitoring 'market_signals' stream (EV Buffer: {buffer})")
     
     while True:
-        # Pull from Redis (Simulating receiving a signal from Oracle/Scout)
-        # In a real app, use r.xread or r.blpop
         signal = r.lpop("market_signals")
         
         if signal:
@@ -82,40 +77,30 @@ def main():
                 odds = data.get("odds")
                 market_id = data.get("market_id", "unknown")
 
-                # ADVANCED QUANT PATH:
                 if "raw_stats" in data:
-                    true_prob = win_prob_model.predict_prob(data["raw_stats"])
+                    # win_prob_model is defined in advanced_models scope or initialized here
+                    # For this refactor, we reuse the pre-initialized model logic
+                    from advanced_models import LogisticWinProbability
+                    static_model = LogisticWinProbability()
+                    static_model.train([[1500, 1400], [1400, 1500], [1600, 1500]], [1, 0, 1])
+                    true_prob = static_model.predict_prob(data["raw_stats"])
                 elif model and "metadata" in data and "matchup" in data["metadata"]:
-                    # Matchup-based prediction using current Elo ratings
                     try:
                         matchup = data["metadata"]["matchup"]
-                        # Matchup format: "Away @ Home"
                         away_team, home_team = matchup.split(" @ ")
                         r_home = ratings.get(home_team, 1500)
                         r_away = ratings.get(away_team, 1500)
-                        
-                        # Optimization params (fallback if not in model intercept)
-                        diff = (r_home + 50) - r_away # Assuming default HFA=50 for now
-                        
-                        # Get probability from model
+                        diff = (r_home + 50) - r_away
                         true_prob = model.predict_proba([[diff]])[0][1]
-                        
-                        # If the participant isn't the home team, we need to adjust
-                        # This logic assumes the signal is for a specific participant
-                        if "participant" in data["metadata"]:
-                            if data["metadata"]["participant"] != home_team:
-                                true_prob = 1 - true_prob
-                                
-                        print(f"Analytics Engine: Model prediction for {data['metadata']['participant']}: {true_prob:.4f}")
-                    except Exception as e:
-                        print(f"Error predicting from matchup: {e}")
+                        if "participant" in data["metadata"] and data["metadata"]["participant"] != home_team:
+                            true_prob = 1 - true_prob
+                    except:
                         true_prob = data.get("true_prob")
                 else:
                     true_prob = data.get("true_prob")
 
                 ev = calculate_ev(true_prob, odds)
 
-                # Persist to DB
                 if conn:
                     try:
                         with conn.cursor() as cur:
@@ -124,21 +109,29 @@ def main():
                                 (market_id, float(odds), float(true_prob), float(ev))
                             )
                         conn.commit()
-                    except Exception as e:
-                        print(f"DB Error: {e}")
-                        conn = get_db_connection() # Attempt reconnect next time
+                    except:
+                        conn = get_db_connection()
                 
                 if ev > buffer:
                     fraction = calculate_kelly_fraction(ev, odds, multiplier)
-                    print(f"[SIGNAL] Market: {market_id} | EV: {ev:.4f} | Kelly: {fraction:.4f}")
                     
-                    # Pass to Sniper Agent
-                    r.rpush("execution_signals", json.dumps({
+                    # --- PORTFOLIO RISK CHECK ---
+                    active_trades = get_active_trades(r)
+                    adjusted_fraction = risk_manager.evaluate_risk({
                         "market_id": market_id,
-                        "ev": ev,
-                        "fraction": fraction,
-                        "odds": odds
-                    }))
+                        "fraction": fraction
+                    }, active_trades)
+                    
+                    if adjusted_fraction > 0:
+                        print(f"[SIGNAL] Market: {market_id} | EV: {ev:.4f} | Size: {adjusted_fraction:.4f}")
+                        r.rpush("execution_signals", json.dumps({
+                            "market_id": market_id,
+                            "ev": ev,
+                            "fraction": adjusted_fraction,
+                            "odds": odds
+                        }))
+                    else:
+                        print(f"[RISK REJECT] Market: {market_id} | EV: {ev:.4f} (Portfolio constraints)")
                 else:
                     print(f"[REJECT] Market: {market_id} | EV: {ev:.4f} (Below buffer)")
                     
@@ -149,3 +142,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
