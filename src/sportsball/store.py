@@ -84,6 +84,29 @@ class Store:
              home_score, away_score, home_close, away_close),
         )
 
+    def update_closing_odds(self, event_id: str, home_close: float, away_close: float) -> None:
+        """Attach real closing decimal odds to an existing game (for CLV / ROI).
+
+        Only touches a known event row — closing lines decorate games we already
+        ingested rather than create stubs. The columns already exist in the
+        schema; populating them is what unblocks ``make clv`` and a real (vs.
+        synthetic-bracket) odds backtest.
+        """
+        self.db.execute(
+            "UPDATE events SET home_close = %s, away_close = %s, updated_at = now() "
+            "WHERE event_id = %s",
+            (float(home_close), float(away_close), event_id),
+        )
+
+    def events_with_closing_odds(self) -> list[tuple]:
+        """(event_id, home_team, away_team, event_date, home_close, away_close,
+        home_score, away_score) for FINAL games that have real closing lines."""
+        return self.db.query(
+            "SELECT event_id, home_team, away_team, event_date, home_close, away_close, "
+            "home_score, away_score FROM events "
+            "WHERE status = 'FINAL' AND home_close > 0 AND away_close > 0"
+        )
+
     def final_events(self, since=None) -> list[tuple]:
         """(event_id, home_team, away_team, event_date) for graded games.
 

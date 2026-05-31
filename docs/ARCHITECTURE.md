@@ -231,11 +231,14 @@ weaknesses; the rest are tracked as the roadmap.
    exercised in automated CI — run `make smoke` after dependency/API changes.
 2. **Cross-venue arbitrage needs parseable sports markets.** The Scout now
    extracts (date, teams) from head-to-head Gamma markets and the Engine prices
-   them, so the Polymarket path is no longer inert. Full cross-venue *arb*
-   alignment with the Oracle is still best-effort: Polymarket doesn't expose
-   home/away, so the Scout adopts a convention (`outcomes[0]=away, [1]=home`); if
-   a venue's order differs, the two `event_id`s won't match. An order-independent
-   matchup key would close this.
+   them, so the Polymarket path is no longer inert. Polymarket still doesn't
+   expose home/away (the Scout adopts `outcomes[0]=away, [1]=home`), but
+   orientation no longer breaks the arbitrage book: it is keyed by
+   `matching.matchup_key` (the sorted-token, order-independent matchup key) with
+   outcomes tracked by team token, so an Oracle line and a reversed-orientation
+   Polymarket line for the same game now meet and compare. The remaining edge case
+   is *settling* a reversed-orientation venue's own `event_id` against the
+   canonical (correctly-oriented) result row.
 
 Contributions that close these are welcome.
 

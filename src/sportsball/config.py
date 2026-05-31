@@ -151,11 +151,18 @@ class Settings:
     rundown_api_key: str | None = field(
         default_factory=lambda: os.getenv("RUNDOWN_API_KEY")
     )
+    odds_api_key: str | None = field(
+        default_factory=lambda: os.getenv("ODDS_API_KEY")
+    )
     slack: SlackConfig = field(default_factory=SlackConfig)
 
     def has_live_rundown_key(self) -> bool:
         key = self.rundown_api_key
         return bool(key) and key != "your_rundown_api_key_here"
+
+    def has_odds_api_key(self) -> bool:
+        key = self.odds_api_key
+        return bool(key) and key != "your_odds_api_key_here"
 
     def as_dict(self) -> dict:
         return asdict(self)

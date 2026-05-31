@@ -19,10 +19,14 @@ the real one. With actual closing odds, the bracket collapses to a single number
 
 - **Need:** a paid odds feed (The Odds API, OddsJam, Rundown with a live key) or a
   historical closing-odds dataset. No robust free source exists for sharp lines.
-- **Work once we have it:** ingest closing odds into `events.home_close`/`away_close`
-  (the columns already exist), then a real CLV backtest replaces the synthetic
-  bracket in [`scripts/backtest.py`](../scripts/backtest.py). `make clv` lights up.
-- **Until then:** this is the gating dependency for any monetary claim.
+- **Ingest path is built and waiting:** `make ingest-odds` (`pipelines/ingest_odds`)
+  populates `events.home_close`/`away_close` from either an offline historical feed
+  (`FILE=feed.json`, no key) or The Odds API (`ODDS_API_KEY`), with pure,
+  unit-tested parsers (median consensus line across books). The moment odds land,
+  `make clv` lights up and the backtest can price against real lines instead of the
+  synthetic bracket in [`scripts/backtest.py`](../scripts/backtest.py).
+- **Until then:** the *data* (not the plumbing) is the gating dependency for any
+  monetary claim.
 
 ---
 
@@ -35,14 +39,23 @@ hasn't fully priced:
 
 1. **Injuries / availability (point-in-time).** "Who is actually playing tonight."
    The single highest-value missing signal — and the reason the roster feature was
-   flat (it ignored availability). The only real modeling lever left.
+   flat (it ignored availability). **Now wired:** `availability_diff` is the v3
+   model's 8th feature, with `make ingest-injuries` deriving a leakage-free
+   per-team-game availability score from the player logs (`team_availability_pit`),
+   the trainer joining it, and the Engine reading tonight's value at serve. Inert
+   (neutral 0) until availability data is loaded, then a retrain activates it — so
+   the remaining lever is *data coverage / quality*, not plumbing.
 2. **Lineup-level / late news.** Starting lineups, load management, trades — the
-   late-breaking information that moves lines.
+   late-breaking information that moves lines. (Feeds the availability score above.)
 3. **Market microstructure & line shopping.** Line movement / steam, and
    **always betting the best available number across books**. For retail, best-line
    execution + arbitrage is a more reliable edge than out-predicting the closer.
+   **Done:** the Engine now line-shops — when it decides to bet a side it prices
+   and sizes against the best number any venue is offering on that team (the
+   arbitrage book doubles as a best-line book), keeping the canonical event/side so
+   settlement is unaffected. Steam/line-movement modeling is still open.
 4. **Train against CLV, not just outcomes.** Optimize/select to beat the closing
-   line; CLV is the leading indicator of genuine edge.
+   line; CLV is the leading indicator of genuine edge. (Gated on Tier 1 odds.)
 
 > Blunt version: more aggregation of public box-score data will not do it — the
 > ablation and the efficient-book result both confirm we've hit that ceiling.
@@ -64,8 +77,11 @@ hasn't fully priced:
 
 ## Lower-priority / breadth
 
-- **Cross-venue arbitrage key** — an order-independent matchup key so Oracle↔
-  Polymarket `event_id`s align regardless of home/away ([ARCHITECTURE §5](ARCHITECTURE.md#5-known-limitations)).
+- **Cross-venue arbitrage key** — *done*: `matching.matchup_key` gives an
+  order-independent matchup key (sorted team tokens) and the arbitrage book is
+  keyed by it with outcomes tracked by team token, so Oracle↔Polymarket prices
+  meet regardless of home/away ([ARCHITECTURE §5](ARCHITECTURE.md#5-known-limitations)).
+  Settling a reversed-orientation venue's own event row is the remaining edge case.
 - **Multi-sport.** The Elo/feature/calibration machinery is sport-agnostic; only
   ingestion is NBA-specific.
 - **Batched loads & nightly live-smoke CI** — `bootstrap`/`backfill-signals` insert
@@ -77,7 +93,10 @@ hasn't fully priced:
 
 If the goal is to learn whether this is **real**, Tier 1 dominates: get a
 closing-odds feed and re-run the backtest against actual lines — that converts the
-project from "plausible, well-characterized skill" to a measured yes/no. Short of
-a feed, the highest-value modeling work is **point-in-time injuries/availability**
-(Tier 2.1) and the highest-value engineering work is **cross-book line shopping**
-(Tier 2.3). Everything else is breadth, not edge.
+project from "plausible, well-characterized skill" to a measured yes/no. The
+*plumbing* for the three highest-value items now exists — closing-odds ingest
+(Tier 1), the point-in-time availability feature (Tier 2.1), and cross-book line
+shopping + an order-independent arb key (Tier 2.3). What's left for each is **data,
+not code**: real closing lines, and real injury/availability coverage. Feed those
+in and re-run `make ingest-odds` → `make ingest-injuries` → `make retrain` →
+`make clv` to measure whether the edge is real.
