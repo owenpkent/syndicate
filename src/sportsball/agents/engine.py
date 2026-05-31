@@ -29,7 +29,7 @@ from ..quant.models import ModelBundle, TeamStat
 from ..quant.odds import calculate_ev, calculate_kelly_fraction
 from ..notify.gate import ApprovalGate
 from ..quant.portfolio import PortfolioRiskManager
-from ..store import HOME, Store, parse_market_id, side_for
+from ..store import AWAY, HOME, Store, parse_market_id, side_for
 
 log = get_logger("engine")
 
@@ -89,12 +89,15 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
     metadata = data.get("metadata", {})
     teams = _teams(metadata)
 
-    # 1. Arbitrage branch (independent of single-market EV).
+    # 1. Arbitrage branch (independent of single-market EV). The returned key is
+    #    order-independent, so prices from venues that disagree on home/away still
+    #    meet in one book; we keep it for cross-book line shopping below.
+    arb_key: Optional[str] = None
     if teams and metadata.get("participant"):
         home, away = teams
-        side_label = "Home" if metadata["participant"] == home else "Away"
-        event_id = arb.update_odds(market_id, odds, metadata.get("source", "Unknown"), side_label)
-        opp = arb.check_arbitrage(event_id) if event_id else None
+        side_label = HOME if metadata["participant"] == home else AWAY
+        arb_key = arb.update_odds(market_id, odds, metadata.get("source", "Unknown"), side_label)
+        opp = arb.check_arbitrage(arb_key) if arb_key else None
         if opp:
             log.info("[ARBITRAGE] %.2f%% margin for %s", opp["profit_margin"] * 100, opp["event_id"])
             broker.push(EXECUTION_SIGNALS, {

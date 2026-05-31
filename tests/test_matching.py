@@ -1,7 +1,12 @@
 """Canonical event identity: team normalization + cross-venue id alignment."""
 from datetime import date
 
-from sportsball.matching import canonical_event_id, normalize_team, parse_event_date
+from sportsball.matching import (
+    canonical_event_id,
+    matchup_key,
+    normalize_team,
+    parse_event_date,
+)
 
 
 class TestNormalizeTeam:
@@ -34,6 +39,29 @@ class TestCanonicalEventId:
         ha = canonical_event_id("nba", "2024-01-15", "Lakers", "Celtics")
         ah = canonical_event_id("nba", "2024-01-15", "Celtics", "Lakers")
         assert ha != ah
+
+
+class TestMatchupKey:
+    def test_collapses_both_orientations(self):
+        ha = canonical_event_id("nba", "2024-01-15", "Lakers", "Celtics")
+        ah = canonical_event_id("nba", "2024-01-15", "Celtics", "Lakers")
+        assert ha != ah                       # oriented ids differ
+        assert matchup_key(ha) == matchup_key(ah)  # but matchup keys agree
+
+    def test_key_is_sorted_and_hyphen_free(self):
+        key = matchup_key(canonical_event_id("nba", "2024-01-15", "Lakers", "Celtics"))
+        assert key == "nba_20240115_celtics_lakers"  # tokens sorted alphabetically
+        assert "-" not in key
+
+    def test_distinct_games_do_not_collide(self):
+        a = matchup_key(canonical_event_id("nba", "2024-01-15", "Lakers", "Celtics"))
+        b = matchup_key(canonical_event_id("nba", "2024-01-16", "Lakers", "Celtics"))
+        assert a != b
+
+    def test_non_canonical_returns_none(self):
+        assert matchup_key("") is None
+        assert matchup_key("EVT") is None
+        assert matchup_key("nba_20240115_lakers_celtics") is None  # no 'at' pivot
 
 
 class TestParseEventDate:
