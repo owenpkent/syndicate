@@ -15,3 +15,15 @@ CREATE TABLE IF NOT EXISTS trade_history (
     fraction NUMERIC(10, 4),
     status TEXT
 );
+
+CREATE TABLE IF NOT EXISTS historical_results (
+    event_id TEXT PRIMARY KEY,
+    sport_id INTEGER,
+    event_date TIMESTAMP,
+    home_team TEXT,
+    away_team TEXT,
+    home_score INTEGER,
+    away_score INTEGER,
+    home_odds NUMERIC(10, 4),
+    away_odds NUMERIC(10, 4)
+);
