@@ -35,6 +35,22 @@ def fetch_stats():
             cur.execute("SELECT market_id, executed_odds, fraction, status, executed_timestamp FROM trade_history ORDER BY executed_timestamp DESC LIMIT 10")
             stats['latest_trades'] = cur.fetchall()
             
+            # Model Accuracy (Virtual backtest on historical_results)
+            cur.execute("SELECT home_team, away_team, home_score, away_score, home_odds, away_odds FROM historical_results")
+            hist = cur.fetchall()
+            correct = 0
+            total_with_odds = 0
+            total_games = len(hist)
+            for h_team, a_team, h_score, a_score, h_odds, a_odds in hist:
+                if h_odds > 0 and a_odds > 0:
+                    market_pred_home = 1 if h_odds < a_odds else 0
+                    actual_home = 1 if h_score > a_score else 0
+                    if market_pred_home == actual_home:
+                        correct += 1
+                    total_with_odds += 1
+            stats['market_accuracy'] = (correct/total_with_odds * 100) if total_with_odds > 0 else 0
+            stats['hist_count'] = total_games
+            
     finally:
         conn.close()
     return stats
@@ -46,9 +62,13 @@ def display_dashboard(stats):
     print("="*60)
     
     print(f"\n[SUMMARY]")
-    print(f"  Total Signals Processed: {stats['total_trades']}")
+    print(f"  Live Signals Processed:  {stats['total_trades']}")
     print(f"  Execution Success Rate:  {(stats['status_counts'].get('SUCCESS', 0) / stats['total_trades'] * 100 if stats['total_trades'] > 0 else 0):.2f}%")
     print(f"  Average Risk per Trade:  {float(stats['avg_risk']):.4f} units")
+    
+    print(f"\n[MODEL PERFORMANCE]")
+    print(f"  Historical Games in DB:  {stats['hist_count']}")
+    print(f"  Market Closing Accuracy: {stats['market_accuracy']:.2f}%")
     
     print(f"\n[LATEST EXECUTIONS]")
     print(f"{'Market ID':<20} | {'Odds':<8} | {'Size':<8} | {'Status':<10}")

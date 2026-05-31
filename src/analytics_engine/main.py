@@ -36,6 +36,22 @@ def get_db_connection():
         print(f"Warning: Could not connect to DB: {e}")
         return None
 
+import pickle
+
+def load_trained_model():
+    try:
+        # Check if model files exist
+        if os.path.exists("models/win_prob_model.pkl") and os.path.exists("models/current_ratings.json"):
+            with open("models/win_prob_model.pkl", "rb") as f:
+                model = pickle.load(f)
+            with open("models/current_ratings.json", "r") as f:
+                ratings = json.load(f)
+            print("Analytics Engine: Loaded trained model and ratings.")
+            return model, ratings
+    except Exception as e:
+        print(f"Analytics Engine: Warning - Could not load trained model: {e}")
+    return None, {}
+
 def main():
     print("Analytics Engine starting...")
     redis_host = os.getenv("REDIS_HOST", "localhost")
@@ -45,6 +61,9 @@ def main():
     conn = get_db_connection()
     if conn:
         print("Analytics Engine: Connected to PostgreSQL")
+
+    # Load trained artifacts
+    model, ratings = load_trained_model()
 
     settings = load_settings()
     buffer = settings.get("safety_buffer_ev", 0.02)
@@ -64,10 +83,33 @@ def main():
                 market_id = data.get("market_id", "unknown")
 
                 # ADVANCED QUANT PATH:
-                # If the signal contains raw stats instead of a pre-calculated probability,
-                # we use our logistic model to derive the true probability.
                 if "raw_stats" in data:
                     true_prob = win_prob_model.predict_prob(data["raw_stats"])
+                elif model and "metadata" in data and "matchup" in data["metadata"]:
+                    # Matchup-based prediction using current Elo ratings
+                    try:
+                        matchup = data["metadata"]["matchup"]
+                        # Matchup format: "Away @ Home"
+                        away_team, home_team = matchup.split(" @ ")
+                        r_home = ratings.get(home_team, 1500)
+                        r_away = ratings.get(away_team, 1500)
+                        
+                        # Optimization params (fallback if not in model intercept)
+                        diff = (r_home + 50) - r_away # Assuming default HFA=50 for now
+                        
+                        # Get probability from model
+                        true_prob = model.predict_proba([[diff]])[0][1]
+                        
+                        # If the participant isn't the home team, we need to adjust
+                        # This logic assumes the signal is for a specific participant
+                        if "participant" in data["metadata"]:
+                            if data["metadata"]["participant"] != home_team:
+                                true_prob = 1 - true_prob
+                                
+                        print(f"Analytics Engine: Model prediction for {data['metadata']['participant']}: {true_prob:.4f}")
+                    except Exception as e:
+                        print(f"Error predicting from matchup: {e}")
+                        true_prob = data.get("true_prob")
                 else:
                     true_prob = data.get("true_prob")
 
