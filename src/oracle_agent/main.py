@@ -26,7 +26,11 @@ def fetch_rundown_markets(api_key):
     Fetches live market data from The Rundown API v2.
     Defaulting to NBA (Sport ID: 4).
     """
-    url = "https://therundown.io/api/v2/sports/4/events"
+    # Get today's date in YYYY-MM-DD format
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    url = f"https://therundown.io/api/v2/sports/4/events/{today}"
     headers = {
         "X-TheRundown-Key": api_key
     }
