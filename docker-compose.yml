@@ -99,6 +99,19 @@ services:
     command: ["python", "dashboard.py"]
     restart: always
 
+  settlement_agent:
+    build: ./src/settlement_agent
+    container_name: agent_settlement
+    depends_on:
+      - postgres
+    environment:
+      - DB_HOST=postgres
+      - PYTHONUNBUFFERED=1
+      - SETTLEMENT_INTERVAL=60
+    volumes:
+      - ./src/settlement_agent:/app
+    restart: always
+
   visualizer:
     image: syndicate-analytics_engine
     container_name: syndicate_visualizer
