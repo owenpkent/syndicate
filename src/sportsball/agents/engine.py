@@ -172,7 +172,9 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
         return
 
     fraction = calculate_kelly_fraction(ev, odds, strategy.kelly_multiplier)
-    sized = PortfolioRiskManager(strategy).evaluate_risk(market_id, fraction, broker.active_trades())
+    # Risk-key on the venue we'll actually book at (the shopped market_id), so the
+    # exposure check matches the exposure the Sniper sets.
+    sized = PortfolioRiskManager(strategy).evaluate_risk(exec_market_id, fraction, broker.active_trades())
     if sized <= 0:
         log.info("[RISK REJECT] %s | EV %.4f (portfolio constraints)", market_id, ev)
         return
