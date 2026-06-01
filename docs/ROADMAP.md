@@ -17,8 +17,19 @@ brackets reality between a naive and an efficient market instead of pricing agai
 the real one. With actual closing odds, the bracket collapses to a single number —
 **closing-line value (CLV)** and true post-vig ROI.
 
-- **Need:** a paid odds feed (The Odds API, OddsJam, Rundown with a live key) or a
-  historical closing-odds dataset. No robust free source exists for sharp lines.
+- **Recommended source (researched):** **sportsbookreviewsonline.com (SBRO)** is the
+  deepest *free* closing-line archive — bulk Excel, closing moneylines + spreads/
+  totals, ~2007→present (the seasons that matter most), $0; feed it via
+  `make ingest-odds FILE=...`. For ongoing/clean lines, **The Odds API** (already
+  wired via `ODDS_API_KEY`) reaches historical snapshots only from ~June 2020 at 10×
+  credits, so use it to snapshot *future* closing lines near tip-off. The existing
+  **Rundown** key has closing endpoints (NBA sport id 4) but its plan depth is
+  unverified — probe before relying on it. **No source covers pre-2019**, so a real
+  CLV backtest tops out at ~2007→present, not the full 1983 history. Detail +
+  caveats: [RESOURCES.md → Historical odds data](RESOURCES.md#historical-odds-data-for-clv).
+- **Data-quality guard (must-have):** a single bad quote can flip backtest ROI from
+  +29% to −6% (arXiv 2306.01740), so reject lines whose two-sided implied probs
+  don't sum to a sane vig (~1.02–1.10) before persisting.
 - **Ingest path is built and waiting:** `make ingest-odds` (`pipelines/ingest_odds`)
   populates `events.home_close`/`away_close` from either an offline historical feed
   (`FILE=feed.json`, no key) or The Odds API (`ODDS_API_KEY`), with pure,
