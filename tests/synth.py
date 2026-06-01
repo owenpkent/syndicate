@@ -18,6 +18,7 @@ provides is real.
 """
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 
 from sportsball.matching import normalize_team
@@ -28,13 +29,22 @@ AVAIL = 7.0    # points of margin per unit of availability advantage
 NOISE = 11.0   # margin noise (sd)
 
 
-def make_season(rng, n_teams: int = 12, n_games: int = 4000, start="2023-10-20"):
-    """Return ``(results, availability_pit)``.
+def _norm_cdf(z: float) -> float:
+    return 0.5 * (1 + math.erf(z / math.sqrt(2)))
+
+
+def make_season(rng, n_teams: int = 12, n_games: int = 4000, start="2023-10-20",
+                with_market: bool = False):
+    """Return ``(results, availability_pit)`` (or ``+ market_pit`` if requested).
 
     ``results``: ``[(date, home, away, home_score, away_score)]`` in date order.
     ``availability_pit``: ``{(normalized_team, date_iso): availability}`` — the
     per-game availability each side actually had, the leakage-free signal the
     trainer joins.
+    ``market_pit`` (only when ``with_market``): ``{(home_token, away_token,
+    date_iso): p_home}`` — a noisy estimate of the game's *true* home-win
+    probability (the efficient market a sharp book would post), so the market
+    feature has genuine, non-trivial signal to measure.
     """
     teams = [f"T{i}" for i in range(n_teams)]
     ratings = {t: float(rng.normal(0, 1)) for t in teams}
@@ -43,6 +53,7 @@ def make_season(rng, n_teams: int = 12, n_games: int = 4000, start="2023-10-20")
 
     results = []
     availability_pit: dict = {}
+    market_pit: dict = {}
     for g in range(n_games):
         gd = day0 + timedelta(days=g // 6)  # ~6 games a day, dates advance in order
         home, away = rng.choice(teams, size=2, replace=False)
@@ -59,4 +70,10 @@ def make_season(rng, n_teams: int = 12, n_games: int = 4000, start="2023-10-20")
         iso = gd.isoformat()
         availability_pit[(normalize_team(home), iso)] = av_h
         availability_pit[(normalize_team(away), iso)] = av_a
+        if with_market:
+            true_p = _norm_cdf(mu / NOISE)            # P(margin > 0)
+            p_mkt = min(0.98, max(0.02, true_p + rng.normal(0, 0.03)))  # efficient + noise
+            market_pit[(normalize_team(home), normalize_team(away), iso)] = p_mkt
+    if with_market:
+        return results, availability_pit, market_pit
     return results, availability_pit
