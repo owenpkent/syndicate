@@ -280,3 +280,37 @@ there (atomic `.partial`→rename) and pruned to `KEEP`; a missing/unwritable
 30 3 * * * cd /path/to/sportsball && PATH=/usr/local/bin:/usr/bin:/bin \
   MIRROR=/mnt/nas_1/sportsball ./scripts/backup.sh >> /path/to/sportsball/data/backup.log 2>&1
 ```
+
+### 8.1 One-time NAS (CIFS) mount setup
+
+Make a persistent, cron-visible mount of an SMB share (example:
+`//drivemaster.local/nas_1` → `/mnt/nas_1`). Run once, as root:
+
+```bash
+sudo apt install -y cifs-utils
+
+# Credentials in a root-only file (keeps the password out of fstab/scripts):
+sudo tee /etc/cifs-sportsball >/dev/null <<'EOF'
+username=YOUR_NAS_USER
+password=YOUR_NAS_PASSWORD
+EOF
+sudo chmod 600 /etc/cifs-sportsball
+
+sudo mkdir -p /mnt/nas_1
+echo '//drivemaster.local/nas_1  /mnt/nas_1  cifs  credentials=/etc/cifs-sportsball,uid=1000,gid=1000,nofail,x-systemd.automount,_netdev  0  0' \
+  | sudo tee -a /etc/fstab
+sudo systemctl daemon-reload && sudo mount /mnt/nas_1
+```
+
+Verify, then point a backup at it:
+
+```bash
+mount | grep /mnt/nas_1                            # type cifs, rw
+MIRROR=/mnt/nas_1/sportsball ./scripts/backup.sh   # expect "mirrored OK"
+```
+
+- Set `uid`/`gid` to the user that runs the cron (`id -u` / `id -g`) so it can
+  write. `nofail` + `x-systemd.automount` keep a missing NAS from hanging boot.
+- Mount errors: `mount error(13)` = bad credentials; timeout/`(115)` = NAS
+  unreachable; add `,vers=3.0` (or `,vers=2.1` for old firmware) on negotiation
+  failures.
