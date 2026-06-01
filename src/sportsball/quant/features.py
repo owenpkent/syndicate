@@ -25,7 +25,7 @@ from typing import Optional
 # Bump SCHEMA_VERSION whenever FEATURE_ORDER changes; ModelBundle.load refuses to
 # serve an artifact whose schema doesn't match, forcing a retrain (never a
 # wrong-width predict).
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 FEATURE_ORDER = [
     "elo_diff_hfa",          # (home.elo + hfa) - away.elo
@@ -36,6 +36,7 @@ FEATURE_ORDER = [
     "form_diff",             # home rolling win% - away rolling win%
     "player_strength_diff",  # home roster strength - away roster strength
     "availability_diff",     # home roster availability - away (point-in-time)
+    "market_logit",          # logit of the no-vig market prob the home side wins
 ]
 N_FEATURES = len(FEATURE_ORDER)
 
@@ -118,6 +119,16 @@ def _net(stat) -> float:
     return float(getattr(stat, "net_rating", 0.0)) if stat is not None else 0.0
 
 
+def market_logit(home_market_prob: Optional[float]) -> float:
+    """Logit of the no-vig market prob the home side wins; 0.0 (= logit 0.5) when
+    unknown, so a missing market is neutral. Antisymmetric: swapping teams sends
+    ``p -> 1-p`` and the logit flips sign, like every other feature."""
+    if home_market_prob is None:
+        return 0.0
+    p = min(max(float(home_market_prob), 1e-6), 1 - 1e-6)
+    return math.log(p / (1 - p))
+
+
 def build_feature_row(
     home_snap: TeamSnapshot,
     away_snap: TeamSnapshot,
@@ -129,6 +140,7 @@ def build_feature_row(
     away_player_strength: Optional[float] = None,
     home_availability: Optional[float] = None,
     away_availability: Optional[float] = None,
+    home_market_prob: Optional[float] = None,
 ) -> list[float]:
     """Build the model feature vector in ``FEATURE_ORDER``.
 
@@ -155,5 +167,6 @@ def build_feature_row(
         "form_diff": home_snap.form - away_snap.form,
         "player_strength_diff": hps - aps,
         "availability_diff": hav - aav,
+        "market_logit": market_logit(home_market_prob),
     }
     return [float(row[name]) for name in FEATURE_ORDER]

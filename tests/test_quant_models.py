@@ -22,16 +22,16 @@ HFA = 50.0
 
 
 def _trained_pipeline():
-    """An 8-feature logistic Pipeline where elo and net-rating both push the label."""
+    """A 9-feature logistic Pipeline where elo and net-rating both push the label."""
     rng = np.random.default_rng(0)
     X, y = [], []
     for _ in range(600):
         elo = rng.uniform(-400, 400)
         net = rng.uniform(-15, 15)
         form = rng.uniform(-0.5, 0.5)
-        # cols: elo, net, rest, b2b_h, b2b_a, form, player_strength, availability
+        # cols: elo, net, rest, b2b_h, b2b_a, form, player_strength, availability, market
         row = [elo, net, rng.uniform(-3, 3), 0.0, 0.0, form,
-               rng.uniform(-1, 1), rng.uniform(-0.5, 0.5)]
+               rng.uniform(-1, 1), rng.uniform(-0.5, 0.5), rng.uniform(-1, 1)]
         score = elo / 120 + net / 5 + form
         y.append(1 if rng.uniform() < 1 / (1 + np.exp(-score)) else 0)
         X.append(row)

@@ -75,6 +75,33 @@ def _availability_pit_map(store: Store) -> dict:
     return out
 
 
+def _market_map(store: Store) -> dict:
+    """No-vig market P(home) keyed by (home_token, away_token, date_iso).
+
+    From ``events`` rows that carry real closing odds (``make ingest-odds``). Empty
+    when unavailable -> the market feature contributes 0 (inert), so the model is
+    unchanged until closing lines are loaded. This is Benter's lever: the market
+    line as a model input, not just the EV benchmark.
+    """
+    from ..quant.odds import devig_two_way
+    if not store.available:
+        return {}
+    try:
+        rows = store.events_with_closing_odds()
+    except Exception as exc:  # noqa: BLE001 - column/table may be absent
+        log.warning("closing odds unavailable (%s); market feature -> 0.", exc)
+        return {}
+    out = {}
+    for event_id, home, away, event_date, home_close, away_close, *_ in rows:
+        p = devig_two_way(float(home_close or 0), float(away_close or 0))
+        if p is None:
+            continue
+        iso = event_date.date().isoformat() if hasattr(event_date, "date") else str(event_date)[:10]
+        out[(normalize_team(home), normalize_team(away), iso)] = p
+    log.info("Loaded %d no-vig market probabilities.", len(out))
+    return out
+
+
 def _fit_calibration(X, y, cal_frac: float = 0.1) -> dict:
     """Fit a calibration spec on a held-out recent tail (auto: temperature vs isotonic).
 
@@ -108,12 +135,13 @@ def run(db: Database) -> bool:
     store = Store(db)
     roster_pit = _roster_pit_map(store)
     availability_pit = _availability_pit_map(store)
+    market_pit = _market_map(store)
 
     rows, snapshots = walk_forward(
         results, params["k_factor"], params["hfa"],
         mov_enabled=strategy.elo_mov_enabled, carry=strategy.elo_carry,
         gap_days=strategy.elo_offseason_gap_days, form_window=strategy.form_window,
-        roster_pit=roster_pit, availability_pit=availability_pit,
+        roster_pit=roster_pit, availability_pit=availability_pit, market_pit=market_pit,
     )
     X = np.array([r.features for r in rows])
     y = np.array([1 if r.actual >= 1.0 else 0 for r in rows])

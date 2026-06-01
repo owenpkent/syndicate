@@ -145,8 +145,8 @@ expose home/away). CI runs the suite on push (`.github/workflows/ci.yml`).
 so the full Postgres loop (retrain → backfill-signals → evaluate) runs locally.
 See docs/ARCHITECTURE.md §5.
 
-The win-probability model is **v3** (schema_version 3): MOV-adjusted Elo with
-season carryover, a shared `quant/features.py` builder (8 features) used by both
+The win-probability model is **v4** (schema_version 4): MOV-adjusted Elo with
+season carryover, a shared `quant/features.py` builder (9 features) used by both
 train and serve, a `Pipeline(StandardScaler, LogisticRegression)`, and a
 player-derived roster-strength feature from the DuckDB logs (`make player-strength`),
 and post-hoc **temperature calibration** (fixes out-of-sample over-confidence; `T`
@@ -162,7 +162,15 @@ actually played, scored from prior games only) into `team_availability_pit`; the
 trainer joins it and the Engine's serve path reads the latest value per team.
 With no availability rows the feature is **inert (neutral 0)** and the model
 behaves exactly as v2 — same "plumbing ready, blocked on data" posture as the
-odds feed; once availability data lands a retrain activates it. All point-in-time
+odds feed; once availability data lands a retrain activates it. The v4 addition is
+**`market_logit`** — the logit of the **no-vig market probability** the home side
+wins (Benter's lever: the market line as a *model input*, not just the EV
+benchmark). Training de-vigs `events.home_close/away_close` (`make ingest-odds`);
+the Engine de-vigs the best two-sided price from the arbitrage book at serve.
+Inert (neutral 0) until closing odds are loaded. Post-hoc calibration is now
+**auto-selected** (temperature *or* isotonic, whichever generalizes; persisted as
+`model_meta.calibration`), and the Engine **shrinks the Kelly stake by the
+model's calibration-confidence** (`strategy.uncertainty_scaling`). All point-in-time
 features reset at season boundaries, symmetric train/serve. Artifacts are
 `models/{win_prob_model.pkl, team_state.json, model_meta.json}`; a schema/width
 mismatch makes the Engine abstain until `make retrain`. After pulling these

@@ -148,6 +148,7 @@ class ModelBundle:
         away_stat: Optional[TeamStat] = None,  # noqa: ARG002
         home_availability: Optional[float] = None,
         away_availability: Optional[float] = None,
+        home_market_prob: Optional[float] = None,
     ) -> float:
         """Probability the home team wins, from the full feature vector.
 
@@ -173,6 +174,7 @@ class ModelBundle:
             home_snap, away_snap, current_date, float(self.meta["hfa"]),
             TeamStat(h_net, 0.0), TeamStat(a_net, 0.0), h_roster, a_roster,
             home_availability=home_availability, away_availability=away_availability,
+            home_market_prob=home_market_prob,
         )
         p = float(self.model.predict_proba([row])[0][1])
         # Post-hoc calibration: prefer the richer spec (temperature OR isotonic);

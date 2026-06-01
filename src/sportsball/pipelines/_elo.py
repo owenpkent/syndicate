@@ -117,6 +117,7 @@ def walk_forward(
     form_window: int = 10,
     roster_pit: Optional[dict] = None,
     availability_pit: Optional[dict] = None,
+    market_pit: Optional[dict] = None,
 ):
     """Replay history; return ``(list[FeatureRow], dict[str, TeamSnapshot])``.
 
@@ -133,6 +134,7 @@ def walk_forward(
 
     roster_pit = roster_pit or {}
     availability_pit = availability_pit or {}
+    market_pit = market_pit or {}
     states: dict[str, _TeamState] = {}
     form_hist: dict[str, deque] = {}
     rows: list[FeatureRow] = []
@@ -148,6 +150,9 @@ def walk_forward(
 
     def avail_for(team: str, current: date) -> float:
         return availability_pit.get((normalize_team(team), current.isoformat()), 0.0)
+
+    def market_for(home: str, away: str, current: date):
+        return market_pit.get((normalize_team(home), normalize_team(away), current.isoformat()))
 
     def net_eff_pregame(s: _TeamState, season: int) -> float:
         # Season-to-date avg margin using only this season's prior games.
@@ -176,6 +181,7 @@ def walk_forward(
             home_snap, away_snap, current, hfa,
             _Net(h_net), _Net(a_net), h_roster, a_roster,
             home_availability=h_avail, away_availability=a_avail,
+            home_market_prob=market_for(home, away, current),
         )
 
         if hs > as_:

@@ -5,8 +5,24 @@ from sportsball.quant.odds import (
     american_to_decimal,
     calculate_ev,
     calculate_kelly_fraction,
+    devig_two_way,
     implied_prob,
 )
+
+
+class TestDevig:
+    def test_removes_margin_to_sum_one(self):
+        p = devig_two_way(1.90, 1.90)  # symmetric -> 0.5 after de-vig
+        assert p == pytest.approx(0.5)
+
+    def test_favorite_above_half(self):
+        p = devig_two_way(1.40, 3.00)
+        assert 0.5 < p < 1.0
+
+    def test_missing_or_bad_price_is_none(self):
+        assert devig_two_way(0, 2.0) is None
+        assert devig_two_way(1.0, 2.0) is None
+        assert devig_two_way(2.0, None) is None
 
 
 class TestAmericanToDecimal:

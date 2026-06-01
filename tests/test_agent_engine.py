@@ -61,6 +61,40 @@ class TestValueSignal:
         assert any("INSERT INTO signals" in s for s, _ in store.db.executed)
 
 
+class TestMarketFeature:
+    def test_devigged_market_prob_reaches_model(self):
+        captured = {}
+
+        class RecordingBundle:
+            meta = {}
+
+            def predict_participant_prob(self, home, away, participant, **stats):
+                captured.update(stats)
+                return 0.6
+
+        arb, broker = ArbitrageEngine(), FakeBroker()
+        # Both sides at 1.90 -> after de-vig P(home) == 0.5.
+        _run(_signal("BOOKA-E1-Celtics", odds=1.90, participant="Celtics", source="BOOKA"),
+             bundle=RecordingBundle(), broker=broker, arb=arb)
+        _run(_signal("BOOKB-E1-Lakers", odds=1.90, participant="Lakers", source="BOOKB"),
+             bundle=RecordingBundle(), broker=broker, arb=arb)
+        assert captured.get("home_market_prob") == pytest.approx(0.5, abs=1e-6)
+
+    def test_one_sided_book_leaves_market_neutral(self):
+        captured = {}
+
+        class RecordingBundle:
+            meta = {}
+
+            def predict_participant_prob(self, home, away, participant, **stats):
+                captured.update(stats)
+                return 0.6
+
+        _run(_signal("BOOKA-E1-Celtics", odds=1.90, participant="Celtics", source="BOOKA"),
+             bundle=RecordingBundle())
+        assert captured.get("home_market_prob") is None  # only one side known
+
+
 class TestUncertaintyAwareKelly:
     def test_less_certain_model_stakes_less(self):
         # Same edge/odds; a model whose calibrator tempers it harder should size

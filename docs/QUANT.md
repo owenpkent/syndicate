@@ -87,9 +87,9 @@ is written to `optimized_params.json` and consumed by the trainer.
 
 ### 2.3 The feature vector
 
-Rather than a single Elo differential, the model consumes an **8-feature** vector
-(`FEATURE_ORDER` in `features.py`), every element a *difference of per-team
-quantities* so it's symmetric and any missing input degrades to a neutral 0:
+Rather than a single Elo differential, the model consumes a **9-feature** vector
+(`FEATURE_ORDER` in `features.py`), every element antisymmetric under a home/away
+swap so any missing input degrades to a neutral 0:
 
 | # | Feature | Meaning |
 |---|---------|---------|
@@ -101,6 +101,7 @@ quantities* so it's symmetric and any missing input degrades to a neutral 0:
 | 6 | `form_diff` | home − away rolling win% over the last `form_window` (10) games |
 | 7 | `player_strength_diff` | home − away **point-in-time** roster strength (§2.5) |
 | 8 | `availability_diff` | home − away **point-in-time** roster availability (§2.5.1) |
+| 9 | `market_logit` | logit of the **no-vig market probability** the home side wins (§2.5.2) |
 
 The first two enrichment features are **point-in-time** (season-to-date, prior games only) —
 not the current-season constants the first version used. `net_rating_diff` is
@@ -163,6 +164,27 @@ is proven on a synthetic season by
 and demonstrated end-to-end by `make dryrun`
 ([`scripts/offline_dryrun.py`](../scripts/offline_dryrun.py)). What remains for
 real edge here is **data coverage/quality**, not plumbing.
+
+### 2.5.2 The market line as a feature (Benter)
+
+`market_logit` (feature 9, schema v4) feeds the **market's own probability into the
+model** — the single highest-evidence upgrade from the research ([RESEARCH_NOTES](RESEARCH_NOTES.md)):
+Bill Benter's most profitable move was adding the public's implied probability as
+an input to his handicapping model. We use the **no-vig** estimate (de-vig the two
+decimal prices so they sum to 1, `odds.devig_two_way`), take its logit, and let the
+logistic weight it alongside Elo/rest/form.
+
+* **Train:** de-vig `events.home_close/away_close` (`make ingest-odds`) into
+  P(home) per game, joined leakage-free in the Elo walk.
+* **Serve:** the Engine de-vigs the best two-sided price standing in the arbitrage
+  book for the matchup; unknown → neutral 0 (= logit 0.5), so it never biases a side.
+
+**Caveat (the "echo the market" risk):** if the model is trained on, and bet
+against, the *same* line, it just learns to reproduce the market and finds ~no edge
+— which is honest, not a bug. The value is training on the **closing** line while
+betting an earlier/better price (capturing the move), and benchmarking edge as CLV
+vs. a sharp close — see [ROADMAP Tier 2.4](ROADMAP.md) and issue #1. Inert (0) until
+closing odds are loaded.
 
 > **Train/serve symmetry (and the HFA fix).** The same `build_feature_row` runs in
 > both paths, and `hfa` is read from the persisted `model_meta.json` rather than a
