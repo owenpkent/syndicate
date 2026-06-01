@@ -40,7 +40,16 @@ make backtest-sim             # walk-forward betting backtest (ROI/win%/drawdown
 docker compose up -d --build  # full cluster (redis, postgres, agents, dashboard, approver)
 docker compose down -v        # REQUIRED after a schema change (init.sql only runs on empty volume)
 make digest                   # post the trailing-24h Slack digest (no-op without SLACK_*)
+make backup                   # snapshot Postgres (pg_dump) + DuckDB + models -> backups/<ts>/
+make restore DIR=backups/<ts> # inverse of make backup (prompts; DESTRUCTIVE)
 ```
+
+**Backups** (see docs/OPERATIONS.md §8): `make backup` dumps Postgres via an
+in-container `pg_dump` (the data dir is uid-70/0700, so a host `cp -r` gets
+*permission denied* — the logical dump is the supported path), copies the DuckDB
+store + `models/`, and prunes to the newest `KEEP` (default 14). Set `MIRROR=` to
+a mounted path (e.g. an `/etc/fstab` CIFS mount — **not** a `gvfs` desktop mount,
+which cron can't see) for an off-site copy.
 
 ## Slack integration (optional)
 

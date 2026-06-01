@@ -167,6 +167,8 @@ rather than dropping the volume.
 | Scout connects but emits nothing | Gamma discovery returned no tradable tokens, or markets are quiet | Set `SCOUT_ASSET_IDS` to specific token ids, or raise `SCOUT_DISCOVERY_LIMIT` |
 | Engine `[ABSTAIN]` even after training | Model trained on too little data | `make ingest-nba` (free NBA history) then `make retrain` |
 | `make test` import errors | Package not installed in venv | `make setup` (or `pip install -e ".[tools]"`) |
+| `permission denied` copying `data/sportsball_postgres` | The Postgres data dir is owned by the container's uid 70 (mode 0700) | Don't copy the dir — use `make backup` (in-container `pg_dump`); see §8 |
+| `make backup` mirror skipped under cron | `MIRROR` points at a `gvfs` desktop mount cron can't see | Use an `/etc/fstab` CIFS mount (`/mnt/nas_1`); see §8 |
 
 ---
 
@@ -236,3 +238,82 @@ click within the TTL auto-rejects (a missed decision never trades).
 
 > The `approver` container starts regardless but **exits immediately** unless
 > both Socket Mode tokens are present — that's expected when the gate is off.
+
+---
+
+## 8. Backups & off-site mirror
+
+`make backup` snapshots the **durable** state into `backups/<UTC-timestamp>/`:
+
+- **Postgres** (`events`/`signals`/`trades`) — a logical `pg_dump` run *inside*
+  the `postgres` container. You **cannot** back this up by copying
+  `data/sportsball_postgres`: it's owned by the container's uid 70 / mode 0700,
+  so a host-side `cp -r` fails with *permission denied*. The dump sidesteps that.
+- **DuckDB** research store (`data/sportsball.duckdb`) — file copy.
+- **Model artifacts** (`models/`) + `optimized_params.json` — regenerable via
+  `make retrain`, but cheap to snapshot.
+
+Redis is intentionally skipped (broker/queue, rebuildable). The Postgres
+container must be running for the DB dump; if it's down the script warns and
+backs up DuckDB + models only.
+
+```bash
+make backup                                   # -> backups/<timestamp>/
+MIRROR=/mnt/nas_1/sportsball make backup      # also mirror off-site
+make backup DIR=/mnt/external                 # write the primary elsewhere
+make restore DIR=backups/<timestamp>          # inverse (prompts; DESTRUCTIVE)
+```
+
+Retention is the newest `KEEP` snapshots per location (default 14), pruned after
+each run. Tunables (env): `KEEP`, `MIRROR`, `PG_SERVICE`, `BACKUP_ROOT`.
+
+**Off-site mirror.** Set `MIRROR` to a mounted path and each snapshot is copied
+there (atomic `.partial`→rename) and pruned to `KEEP`; a missing/unwritable
+`MIRROR` warns but never fails the local backup.
+
+> **SMB/NAS caveat:** a desktop file-manager SMB mount lives under
+> `/run/user/<uid>/gvfs/…` and is **invisible to cron** (no session bus). For an
+> automated mirror, use a real CIFS mount (`/etc/fstab`, `nofail,x-systemd.automount`)
+> at e.g. `/mnt/nas_1` and point `MIRROR` there. SMB can't store Unix
+> perms/ownership, so the script copies with `cp -r` (not `-a`) by design.
+
+**Scheduling.** Nightly host cron (runs even when nothing else is):
+
+```cron
+30 3 * * * cd /path/to/sportsball && PATH=/usr/local/bin:/usr/bin:/bin \
+  MIRROR=/mnt/nas_1/sportsball ./scripts/backup.sh >> /path/to/sportsball/data/backup.log 2>&1
+```
+
+### 8.1 One-time NAS (CIFS) mount setup
+
+Make a persistent, cron-visible mount of an SMB share (example:
+`//drivemaster.local/nas_1` → `/mnt/nas_1`). Run once, as root:
+
+```bash
+sudo apt install -y cifs-utils
+
+# Credentials in a root-only file (keeps the password out of fstab/scripts):
+sudo tee /etc/cifs-sportsball >/dev/null <<'EOF'
+username=YOUR_NAS_USER
+password=YOUR_NAS_PASSWORD
+EOF
+sudo chmod 600 /etc/cifs-sportsball
+
+sudo mkdir -p /mnt/nas_1
+echo '//drivemaster.local/nas_1  /mnt/nas_1  cifs  credentials=/etc/cifs-sportsball,uid=1000,gid=1000,nofail,x-systemd.automount,_netdev  0  0' \
+  | sudo tee -a /etc/fstab
+sudo systemctl daemon-reload && sudo mount /mnt/nas_1
+```
+
+Verify, then point a backup at it:
+
+```bash
+mount | grep /mnt/nas_1                            # type cifs, rw
+MIRROR=/mnt/nas_1/sportsball ./scripts/backup.sh   # expect "mirrored OK"
+```
+
+- Set `uid`/`gid` to the user that runs the cron (`id -u` / `id -g`) so it can
+  write. `nofail` + `x-systemd.automount` keep a missing NAS from hanging boot.
+- Mount errors: `mount error(13)` = bad credentials; timeout/`(115)` = NAS
+  unreachable; add `,vers=3.0` (or `,vers=2.1` for old firmware) on negotiation
+  failures.
