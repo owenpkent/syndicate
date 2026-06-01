@@ -109,7 +109,8 @@ trading is the truest edge signal — note it needs a closing-line source
 |---------|-------|
 | `make health` / `sportsball-health` | Redis + Postgres reachability, queue depth, exposure, row counts (exit code 0/1) |
 | `make smoke` / `sportsball-smoke` | **Live** integration check: Gamma API markets, nba_api season, CLOB WebSocket (exit 0/1) |
-| `make dashboard` | Trades, realized PnL, arb count, favorite-hit baseline, latest executions |
+| `make dashboard` | Terminal view: trades, realized PnL, arb count, favorite-hit baseline, latest executions |
+| `make webui` (`[web]` extra) | **Web dashboard** at `http://127.0.0.1:8000` — KPIs (PnL/ROI/win%/CLV), equity curve, edge + model-status panels, recent signals/trades. Auto data source: Postgres → DuckDB → demo (`MODE=demo` to force; renders offline with no DB). |
 | `make digest` / `sportsball-digest` | Posts a trailing-24h summary (PnL, exposure, counts, model age) to Slack; no-op without `SLACK_*` |
 | `docker compose logs -f analytics_engine` | Per-signal `[SIGNAL]`/`[REJECT]`/`[ABSTAIN]`/`[ARBITRAGE]`/`[GATE]` decisions |
 

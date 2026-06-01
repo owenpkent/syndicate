@@ -214,6 +214,63 @@ class Store:
         return {"realized_pnl": float(pnl or 0), "settled": int(settled or 0),
                 "trades": int(trades or 0), "signals": int(signals or 0)}
 
+    # -- web dashboard --------------------------------------------------------
+    def dashboard_data(self) -> tuple[list[dict], list[dict], list[dict]]:
+        """(signals, events, trades) as JSON-native dicts for the web dashboard.
+
+        One place, real FK joins, timestamps stringified so the payload is
+        directly serializable. Bounded by LIMITs — this feeds a live view, not a
+        full export.
+        """
+        def _iso(ts):
+            return ts.isoformat() if hasattr(ts, "isoformat") else (str(ts) if ts is not None else None)
+
+        sig_rows = self.db.query(
+            """
+            SELECT s.ts, e.away_team, e.home_team, s.side, s.source, s.odds, s.true_prob, s.ev,
+                   EXISTS(SELECT 1 FROM trades t WHERE t.event_id = s.event_id AND t.side = s.side)
+            FROM signals s JOIN events e ON e.event_id = s.event_id
+            ORDER BY s.ts DESC LIMIT 500
+            """
+        )
+        signals = [{"ts": _iso(r[0]), "event": f"{r[1]} @ {r[2]}", "side": r[3],
+                    "source": r[4], "odds": float(r[5]) if r[5] is not None else None,
+                    "true_prob": float(r[6]) if r[6] is not None else None,
+                    "ev": float(r[7]) if r[7] is not None else None, "bet": bool(r[8])}
+                   for r in sig_rows]
+
+        evt_rows = self.db.query(
+            """
+            SELECT event_id, home_team, away_team, home_score, away_score, home_close, away_close
+            FROM events WHERE status = 'FINAL' AND home_score IS NOT NULL LIMIT 5000
+            """
+        )
+        events = [{"event_id": r[0], "home": r[1], "away": r[2],
+                   "home_score": r[3], "away_score": r[4],
+                   "home_close": float(r[5]) if r[5] is not None else None,
+                   "away_close": float(r[6]) if r[6] is not None else None}
+                  for r in evt_rows]
+
+        trade_rows = self.db.query(
+            """
+            SELECT t.executed_ts, t.market_id, e.away_team, e.home_team, t.side,
+                   t.executed_odds, t.stake_frac, t.status, t.pnl, t.is_arb,
+                   CASE WHEN t.side = 'HOME' THEN e.home_close ELSE e.away_close END
+            FROM trades t JOIN events e ON e.event_id = t.event_id
+            ORDER BY t.executed_ts DESC LIMIT 2000
+            """
+        )
+        trades = []
+        for r in trade_rows:
+            odds = float(r[5]) if r[5] is not None else 0.0
+            side_close = float(r[10]) if r[10] is not None else 0.0
+            trades.append({"ts": _iso(r[0]), "market_id": r[1], "event": f"{r[2]} @ {r[3]}",
+                           "side": r[4], "odds": odds, "stake": float(r[6]) if r[6] is not None else 0.0,
+                           "status": r[7], "pnl": float(r[8]) if r[8] is not None else 0.0,
+                           "clv": (odds / side_close - 1) if side_close > 0 and odds > 0 else None,
+                           "is_arb": bool(r[9])})
+        return signals, events, trades
+
     # -- team stats -----------------------------------------------------------
     def team_stat(self, team_name: str):
         """(net_rating, pace, player_strength) for a team, or None."""

@@ -23,7 +23,7 @@ jobs:
       - name: Install package + test extras
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[tools,duckdb]"
+          pip install -e ".[tools,duckdb,web]"
 
       # The unit suite uses in-memory fakes (tests/fakes.py) — no Redis, Postgres,
       # network, or slack_sdk on the default path — so it runs with zero services.

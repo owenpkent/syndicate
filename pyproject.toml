@@ -25,6 +25,8 @@ dependencies = [
 tools = ["matplotlib>=3.8", "pandas>=2.1", "nba_api>=1.4", "pytest>=8.0"]
 # Local research store + the offline synthetic dry run (scripts/offline_dryrun.py).
 duckdb = ["duckdb>=0.10"]
+# Web dashboard (sportsball-webui). httpx is needed by the FastAPI test client.
+web = ["fastapi>=0.110", "uvicorn>=0.27", "httpx>=0.27"]
 
 [project.scripts]
 # Each agent and pipeline is exposed as a console entrypoint so the Docker
@@ -37,6 +39,7 @@ sportsball-settlement = "sportsball.agents.settlement:main"
 sportsball-retrainer = "sportsball.agents.retrainer:main"
 sportsball-approver = "sportsball.agents.approver:main"
 sportsball-dashboard = "sportsball.tools.dashboard:main"
+sportsball-webui = "sportsball.web.app:main"
 sportsball-health = "sportsball.tools.health:main"
 sportsball-digest = "sportsball.tools.digest:main"
 sportsball-clv = "sportsball.tools.clv:main"

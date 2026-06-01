@@ -23,6 +23,7 @@ make test      # pytest — 154 unit tests, NO DB/Redis/network needed (uses in-
 make backtest  # run tests/backtest_pipeline.py over mock ticks
 make demo      # seed the DB with fake events/signals/trades for the tools
 make dashboard / health / clv / evaluate / plot / calibrate / backtest-viz
+make webui                    # FastAPI web dashboard (auto: Postgres -> DuckDB -> demo)
 make smoke     # validate LIVE integrations (Gamma API, nba_api, CLOB WebSocket)
 make ingest-nba               # FREE real NBA history (nba_api, no key) -> events
 make bootstrap                # idempotent schema apply + load DuckDB history -> Postgres events
@@ -78,6 +79,11 @@ Package layout (`src/sportsball/`):
 - `tools/` — dashboard, health, clv, evaluate, smoke (live-integration check), digest
 - `notify/` — Slack: `blocks` (pure Block Kit), `slack` (`Notifier`, no-op when
   unconfigured + error-isolating), `gate` (`ApprovalGate` routing)
+- `web/` — FastAPI dashboard: `providers` (demo / DuckDB / Postgres `DataProvider`s
+  + on-disk `model_status`), `app` (`create_app` + the self-contained HTML page).
+  Runs offline on demo data; `sportsball-webui` / `make webui`. The `[web]` extra
+  (fastapi/uvicorn/httpx) is optional; web tests `importorskip` so the suite stays
+  green without it.
 
 Events are keyed by a **canonical `event_id`** (`matching.canonical_event_id`,
 e.g. `nba_20240115_lakers_at_celtics`) so the Oracle, backfill, NBA ingester, and

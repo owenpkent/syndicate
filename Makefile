@@ -7,7 +7,7 @@
 PYTHON=./venv/bin/python3
 PIP=$(PYTHON) -m pip
 
-.PHONY: setup test dashboard health digest smoke plot calibrate clv evaluate fetch-stats demo \
+.PHONY: setup test dashboard webui health digest smoke plot calibrate clv evaluate fetch-stats demo \
         backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
         player-strength roster-pit ingest-injuries ingest-odds dryrun eval-duckdb \
         measure-features model-quality backtest-sim shell
@@ -26,6 +26,11 @@ test:
 dashboard:
 	@echo "Launching real-time dashboard..."
 	@DB_HOST=localhost $(PYTHON) -m sportsball.tools.dashboard
+
+# Web dashboard (FastAPI). Auto data source: Postgres -> DuckDB -> demo. Needs the
+# web extra (pip install -e ".[web]"). MODE=demo|duckdb|postgres, PORT=8000.
+webui:
+	@$(PYTHON) -m sportsball.web.app --mode $(or $(MODE),auto) --port $(or $(PORT),8000)
 
 health:
 	@echo "Checking system health..."
