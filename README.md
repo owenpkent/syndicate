@@ -9,6 +9,8 @@ Sportsball is an autonomous, distributed-agent quantitative trading pipeline and
 
 > **What this is (and isn't):** Sportsball runs in **paper-trading / simulation mode** by default (`EXECUTION_MODE=PAPER`). It is a research and demonstration harness for sports-market modeling and execution logic — it does **not** place real bets and ships **no proven edge** out of the box. The Engine **abstains entirely when it has no trained model** — it never stakes on a producer-supplied or random probability. Real alpha requires training on backfilled history and is gated on **Closing Line Value** vs. a sharp closing line, which needs a real odds feed. See **[Known Limitations](docs/ARCHITECTURE.md#5-known-limitations)** and the **[Roadmap](docs/ROADMAP.md)** for an honest accounting of what works end-to-end today.
 
+> **Research findings (honest):** With real odds loaded (2011–2026) and a rigorous edge hunt, **no model beats the closing line** (sides CLV −1.67%, totals residual R² ≈ 0) — the market prices in everything our box-score features know. Line-shopping ≈ breakeven; the soft-book edge was real (2022–24) but **decayed**. The **one real, durable edge is line *movement* (steam)**: betting the side a total moves toward, at the *opening* number, wins 53–60%+ across **~56k games / 4 sports (NBA/MLB/NHL/NFL)** — a market-structure law, not basketball. The strategic pivot is **modeling the *market* (predicting the close/movement), not the *game*** — which shows a small but *positive* signal where game-modeling was zero. The live capture now records per-book open/close lines across in-season sports to chase it. Full writeup: **[Roadmap → Edge research](docs/ROADMAP.md)**.
+
 ---
 
 ## ─── Quick Start ───

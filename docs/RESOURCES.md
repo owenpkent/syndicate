@@ -68,6 +68,17 @@ Researched source comparison:
 *   Recommendation: **SBRO mirror for free deep history; The Odds API for clean
     ongoing lines.** See [ROADMAP.md Tier 1](ROADMAP.md).
 
+### Line-movement archives (opening + closing) — multi-sport, free
+
+The same SBRO scraper ships **10-year archives with OPENING and CLOSING lines**
+(moneyline / spread / total) for **NBA, MLB, NHL, NFL** — the raw material for the
+line-movement (steam) edge, since it carries both ends of the move:
+`raw.githubusercontent.com/flancast90/sportsbookreview-scraper/main/data/{nba,mlb,nhl,nfl}_archive_10Y.json`
+(consensus, not per-book). Loaded to `data/*_archive_10Y.json`; `scripts/steam_validation.py`
+and `scripts/predict_close_experiment.py` run on them. **Per-book intraday history
+(needed for book lead-lag) is NOT freely available** — that requires the live
+`capture-quotes` capture at intraday frequency.
+
 ### Communities & Podcasts
 *   **"Circles Off" Podcast**: Expert-level discussion on high-stakes quantitative betting and steam tracking.
 *   **Pinnacle "Betting Resources"**: Academic-grade articles on market efficiency and predictive modeling.
