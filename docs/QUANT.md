@@ -21,7 +21,7 @@ the modeling pipelines in [`src/sportsball/pipelines/`](../src/sportsball/pipeli
   events (FINAL scores)                          market_signal {odds, matchup, …}
         │                                              │
         ▼  walk Elo forward (MOV + carryover)          ▼  ModelBundle.predict
-  7-feature row + outcome per game                build_feature_row(...) [shared]
+  9-feature row + outcome per game                build_feature_row(...) [shared]
         │                                              │
         ▼  optimize K, HFA  (L-BFGS-B, log-loss)       ▼  scaler+logistic σ(·) → P_true
   optimized_params.json                                │
@@ -150,7 +150,7 @@ roster metric (RAPM, availability), but it is not currently a source of edge.
 
 ### 2.5.1 Point-in-time availability (the injuries lever)
 
-`availability_diff` (feature 8, schema v3) is the roadmap's highest-value missing
+`availability_diff` (feature 8, added in schema v3) is the roadmap's highest-value missing
 signal — *who is actually playing tonight*, the reason season roster strength was
 flat. It is defined as **the season-to-date strength of the players actually
 available**, computed identically at train and serve so the two can't drift:
@@ -205,20 +205,30 @@ closing odds are loaded.
 > stale-shaped artifact **abstain** (prompting `make retrain`) rather than feed the
 > model a wrong-width vector.
 
-### 2.6 Calibration (temperature scaling)
+### 2.6 Calibration (auto-selected: temperature or isotonic)
 
 The raw logistic is **systematically over-confident out-of-sample** — on a
 chronological holdout, predicted 0.65 came back 0.58, predicted 0.75 → 0.68
 (Expected Calibration Error ≈ 0.053). Since `EV = P_true·odds − 1` and Kelly both
 trust the probability *level*, over-confidence quietly over-stakes. The trainer
-fits a single **temperature** `T` on a held-out recent tail and persists it in
-`model_meta.json`; the bundle applies it to every prediction:
+fits a calibrator on a held-out recent tail and persists a small JSON spec in
+`model_meta.json` (`calibration`); the bundle applies it purely (numpy) to every
+prediction. Two calibrators are considered ([`quant/calibration.py`](../src/sportsball/quant/calibration.py)):
 
-$$P_{\text{cal}} = \sigma\!\Big(\tfrac{1}{T}\,\operatorname{logit}(P_{\text{true}})\Big)$$
+* **temperature** — divide the logit by a scalar `T`:
+  $P_{\text{cal}} = \sigma\!\big(\tfrac{1}{T}\,\operatorname{logit}(P)\big)$, `T>1`
+  shrinks toward 0.5 (monotonic — ranking/AUC unchanged);
+* **isotonic** — a monotonic piecewise-linear remap (applied via `np.interp` on the
+  fitted knots), which can fix non-uniform miscalibration temperature can't.
 
-`T > 1` shrinks predictions toward 0.5 (monotonic — ranking/AUC unchanged). On the
-holdout, `T ≈ 1.17` cut ECE ~26% (0.057 → 0.042) and improved Brier and log-loss.
-Older artifacts without a `temperature` key default to `T = 1.0` (no-op).
+`method="auto"` fits both on one half of the tail, scores log-loss on the other,
+and keeps the winner (else `identity`), so isotonic is chosen only when it
+*generalizes*. On a well-calibrated model `auto` correctly picks `identity`; on a
+deliberately over-fit one (`make measure-algos`, regime B) temperature cut holdout
+log-loss ~1.03 → 0.42. The **Engine then shrinks the Kelly stake by the model's
+calibration-confidence** (`calibration.confidence`, `strategy.uncertainty_scaling`)
+— a more-tempered model stakes less. Older artifacts fall back to the legacy scalar
+`temperature` (default `T=1.0`, no-op).
 
 ### 2.7 What the features actually contribute
 

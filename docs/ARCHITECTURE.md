@@ -59,10 +59,19 @@ A separate **notification path** (see §6) is one-way: the Sniper, Settlement, a
 
 ### Analytics Engine (The Brain)
 *   Subscribes to all `market_signals`.
-*   **EV Strategy:** Applies statistical models (Regression, Poisson, MC) to determine $P_{\text{true}}$.
-*   **Arbitrage Strategy:** Maintains a cross-venue order book to detect risk-free discrepancies.
-*   Calculates $EV$ and optimal $f^*$ (Kelly size).
+*   **EV Strategy:** Models $P_{\text{true}}$ with the v4 `ModelBundle` (9-feature logistic+GBM ensemble, calibrated). Abstains with no model.
+*   **Arbitrage Strategy:** Maintains a cross-venue book on an **order-independent matchup key** (`matching.matchup_key`) so prices align regardless of home/away.
+*   **Line shopping:** bets the best available number for the side across venues (the arb book doubles as a best-line book).
+*   **Market feature:** de-vigs the best two-sided price (`odds.devig_two_way`) into the model's `market_logit` input.
+*   Calculates $EV$ and sizes with **uncertainty-aware** fractional Kelly (`f^* = multiplier · confidence(calibration) · EV/(odds−1)`).
 *   Logs every signal to **PostgreSQL** for historical analysis.
+
+### Web Dashboard — *optional* (`sportsball-webui`, `make webui`)
+A FastAPI app serving KPI cards (PnL/ROI/win%/CLV), an equity curve, and edge /
+model-status / live panels, polling a JSON `/api/snapshot`. A pluggable
+`DataProvider` renders against Postgres, a DuckDB file, or in-memory demo data
+(the offline default); the model panel reads the real artifacts, so it honestly
+shows the shipped model as live/stale/absent. See `src/sportsball/web/`.
 
 ### Sniper Agent (The Executioner)
 *   Subscribes to `execution_signals`.

@@ -11,7 +11,7 @@ To run tests, visualizations, and diagnostic tools on your host machine, initial
 ```bash
 make setup
 ```
-This creates a `./venv`, upgrades `pip`, and installs the `sportsball` package in editable mode with the `[tools]` extra (`matplotlib`, `pandas`, `nba_api`, `pytest`). After setup, `make test` runs the unit suite (154 tests). The suite uses in-memory fakes (`tests/fakes.py`) and needs no Redis/Postgres/network — and nothing on the default path imports `slack_sdk`. CI (`.github/workflows/ci.yml`) runs it on Python 3.11 + 3.12 on every push/PR.
+This creates a `./venv`, upgrades `pip`, and installs the `sportsball` package in editable mode with the `[tools]` extra (`matplotlib`, `pandas`, `nba_api`, `pytest`). Optional extras: `[duckdb]` (the offline dry-run/measurement) and `[web]` (`fastapi`, `uvicorn`, `httpx` for the dashboard) — install all with `pip install -e ".[tools,duckdb,web]"`. After setup, `make test` runs the unit suite (233 tests). The suite uses in-memory fakes (`tests/fakes.py`) and needs no Redis/Postgres/network — and nothing on the default path imports `slack_sdk` (web tests `importorskip` if `[web]` isn't installed). CI (`.github/workflows/ci.yml`) runs it on Python 3.11 + 3.12 on every push/PR, plus the offline dry-run and algorithm-measurement smokes.
 
 ---
 
@@ -109,19 +109,27 @@ docker exec agent_engine sportsball-backfill --start 2023-10-24 --end 2024-04-14
 
 ### Training the Model
 Ensure the schema + history exist (`make bootstrap`), then optimize Elo params and
-train the **v2** win-probability model the Engine loads (a `StandardScaler` +
-logistic `Pipeline` over the 7-feature vector; writes `models/{win_prob_model.pkl,
-team_state.json, model_meta.json}`). See [QUANT.md](QUANT.md) for the algorithm.
+train the **v4** win-probability model the Engine loads (a `StandardScaler` +
+logistic `Pipeline` over the **9-feature** vector, by default **ensembled** with a
+gradient-boosted tree, plus auto-selected temperature/isotonic **calibration**;
+writes `models/{win_prob_model.pkl, team_state.json, model_meta.json}`). See
+[QUANT.md](QUANT.md) for the algorithm.
 
 ```bash
 make optimize          # tunes K-factor + home-field advantage by log-loss
-make train             # builds the 7-feature matrix + fits the Pipeline
+make train             # builds the 9-feature matrix + fits the (ensemble) model
 # or both: make retrain
+
+# Optional point-in-time features (run before retrain):
+make roster-pit        # season-to-date roster strength -> team_strength_pit
+make ingest-injuries   # roster availability -> team_availability_pit
+make ingest-odds       # real closing odds -> events.home_close/away_close (market feature + CLV)
 
 # Evaluate:
 make eval-duckdb       # rigorous out-of-sample walk-forward holdout (no Postgres)
+make measure-algos     # quantify feature/ensemble/calibration lift (synthetic, no data)
 make backfill-signals  # persist model predictions (recent window) -> signals
-make evaluate          # Brier/log-loss on those signals (in-sample sanity check)
+make evaluate          # CLV edge gate (primary) + Brier/log-loss calibration check
 ```
 
 ### NBA Advanced Stats Fetcher

@@ -45,7 +45,7 @@ hasn't fully priced:
 
 1. **Injuries / availability (point-in-time).** "Who is actually playing tonight."
    The single highest-value missing signal — and the reason the roster feature was
-   flat (it ignored availability). **Now wired:** `availability_diff` is the v3
+   flat (it ignored availability). **Now wired:** `availability_diff` is the v4
    model's 8th feature, with `make ingest-injuries` deriving a leakage-free
    per-team-game availability score from the player logs (`team_availability_pit`),
    the trainer joining it, and the Engine reading tonight's value at serve. Inert

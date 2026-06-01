@@ -98,13 +98,26 @@ One row per **team-game**, written by `make roster-pit`
 that team's *prior* games in the season (leakage-free). Joined by the trainer to feed
 the model's `player_strength_diff` feature; serving uses the snapshot's latest value.
 
+### `team_availability_pit` — point-in-time roster availability
+One row per **team-game**, written by `make ingest-injuries`
+([compute](../src/sportsball/pipelines/ingest_injuries.py)) from the DuckDB player
+logs: `(team_name, game_date, season, availability)` — the season-to-date strength of
+the players actually available (who logged minutes), scored from prior games only.
+Feeds the model's `availability_diff` feature (v3); the Engine's serve path reads the
+latest value per team. Empty → the feature is inert (neutral 0).
+
+> Closing odds (`events.home_close`/`away_close`) are populated by `make ingest-odds`
+> ([ingest_odds](../src/sportsball/pipelines/ingest_odds.py)); de-vigged they feed the
+> v4 `market_logit` feature and unlock `make clv`.
+
 ### Model artifacts (`models/`, not a DB table)
 `make train` writes three files the Engine's `ModelBundle` loads together:
-`win_prob_model.pkl` (the scaler+logistic Pipeline), `team_state.json` (per-team
-snapshot — Elo, last-game-date, form, **point-in-time `net_eff`/`roster`/`season`** —
-for symmetric serving with a new-season reset), and `model_meta.json`
-(the feature contract + hfa + calibration `temperature` + schema version). A schema/width mismatch makes the
-Engine abstain until `make retrain`. See [QUANT.md](QUANT.md#2-the-win-probability-model-live).
+`win_prob_model.pkl` (the scaler+logistic Pipeline, by default **ensembled** with a
+gradient-boosted tree), `team_state.json` (per-team snapshot — Elo, last-game-date,
+form, **point-in-time `net_eff`/`roster`/`season`/`availability`** — for symmetric
+serving with a new-season reset), and `model_meta.json` (the feature contract + hfa +
+the auto-selected `calibration` spec + schema version). A schema/width mismatch makes
+the Engine abstain until `make retrain`. See [QUANT.md](QUANT.md#2-the-win-probability-model-live).
 
 ---
 
