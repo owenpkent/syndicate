@@ -94,7 +94,12 @@ INDEX_HTML = r"""<!doctype html>
   svg.spark{width:100%;height:140px;display:block}
   .foot{color:var(--mut);font-size:11px;margin-top:16px;text-align:center}
   .pill{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
+  .ctl{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;
+       padding:4px 8px;font-size:12px}
+  .eqwrap{position:relative;height:140px}
+  canvas#eqchart{position:absolute;inset:0}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 <body>
 <header>
@@ -102,6 +107,13 @@ INDEX_HTML = r"""<!doctype html>
   <span class="spacer"></span>
   <span id="src" class="badge src">…</span>
   <span id="mstatus" class="badge">model …</span>
+  <select id="refresh" class="ctl" title="auto-refresh interval">
+    <option value="2000">2s</option>
+    <option value="5000" selected>5s</option>
+    <option value="10000">10s</option>
+    <option value="30000">30s</option>
+    <option value="0">Pause</option>
+  </select>
 </header>
 <main>
   <div class="grid kpis">
@@ -114,7 +126,10 @@ INDEX_HTML = r"""<!doctype html>
   <div class="grid cols">
     <div class="card">
       <h2>Equity curve <span id="eqn" class="pill"></span></h2>
-      <svg id="spark" class="spark" preserveAspectRatio="none"></svg>
+      <div class="eqwrap">
+        <canvas id="eqchart"></canvas>
+        <svg id="spark" class="spark" preserveAspectRatio="none" style="display:none"></svg>
+      </div>
     </div>
     <div class="card">
       <h2>Edge diagnostics</h2>
@@ -162,6 +177,24 @@ function spark(curve){
     +`<line x1="${p}" y1="${Y(base).toFixed(1)}" x2="${W-p}" y2="${Y(base).toFixed(1)}" stroke="#27314a" stroke-dasharray="4 4"/>`;
 }
 
+let chart=null;
+function drawEquity(curve){
+  const cv=$("eqchart"), sv=$("spark");
+  if(!window.Chart){ cv.style.display="none"; sv.style.display="block"; return spark(curve); }
+  cv.style.display="block"; sv.style.display="none";
+  const ys=curve.map(c=>c.bankroll);
+  const up=ys.length>1?ys[ys.length-1]>=curve[0].bankroll:true;
+  const col=up?"#33d6a6":"#ff6b6b";
+  const data={labels:curve.map((_,i)=>i),
+    datasets:[{data:ys,borderColor:col,backgroundColor:col+"22",fill:true,
+               tension:.15,pointRadius:0,borderWidth:2}]};
+  const opts={animation:false,responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{x:{display:false},y:{ticks:{color:"#8aa0c6"},grid:{color:"#1b2333"}}}};
+  if(chart){ chart.data=data; chart.options=opts; chart.update(); }
+  else { chart=new Chart(cv.getContext("2d"),{type:"line",data,options:opts}); }
+}
+
 function rows(t,cols,data,fmt){
   t.innerHTML="<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>"+
     (data.length?data.map(r=>"<tr>"+fmt(r)+"</tr>").join(""):`<tr><td colspan="${cols.length}" class="mut">none</td></tr>`);
@@ -180,7 +213,7 @@ async function tick(){
   $("clv").innerHTML=`<span class="${cls(e.avg_clv)}">${sgnPct(e.avg_clv)}</span> <span class="mut" style="font-size:14px">· ${pct(e.clv_beat_rate)}</span>`;
 
   $("eqn").textContent=p.settled+" settled · "+p.open+" open";
-  spark(p.equity_curve);
+  drawEquity(p.equity_curve);
 
   $("edge").innerHTML=[
     ["Avg CLV", `<span class="${cls(e.avg_clv)}">${sgnPct(e.avg_clv)}</span> (n=${e.n_clv})`],
@@ -215,9 +248,19 @@ async function tick(){
     `<td>${r.event}</td><td>${r.side}</td><td class="num">${num(r.odds)}</td><td class="num">${num(r.stake,4)}</td>`+
     `<td>${r.status}</td><td class="num ${cls(r.pnl)}">${r.pnl?((r.pnl>=0?"+":"")+num(r.pnl,4)):"—"}</td>`);
 
-  $("foot").textContent="source: "+s.source+" · updated "+new Date(s.generated_at).toLocaleTimeString()+" · auto-refresh 5s";
+  const rv=+$("refresh").value;
+  $("foot").textContent="source: "+s.source+" · updated "+new Date(s.generated_at).toLocaleTimeString()+
+    (rv>0?(" · auto-refresh "+(rv/1000)+"s"):" · paused");
 }
-tick(); setInterval(tick,5000);
+
+let timer=null;
+function schedule(){
+  if(timer) clearInterval(timer);
+  const ms=+$("refresh").value;
+  timer = ms>0 ? setInterval(tick,ms) : null;
+}
+$("refresh").addEventListener("change",()=>{ schedule(); if(+$("refresh").value>0) tick(); });
+tick(); schedule();
 </script>
 </body>
 </html>
