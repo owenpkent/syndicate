@@ -7,9 +7,10 @@
 PYTHON=./venv/bin/python3
 PIP=$(PYTHON) -m pip
 
-.PHONY: setup test dashboard health digest smoke plot calibrate clv evaluate fetch-stats demo \
+.PHONY: setup test dashboard webui health digest smoke plot calibrate clv evaluate fetch-stats demo \
         backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
-        player-strength roster-pit eval-duckdb measure-features model-quality backtest-sim shell
+        player-strength roster-pit ingest-injuries ingest-odds dryrun measure-algos \
+        eval-duckdb measure-features model-quality backtest-sim shell
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -25,6 +26,11 @@ test:
 dashboard:
 	@echo "Launching real-time dashboard..."
 	@DB_HOST=localhost $(PYTHON) -m sportsball.tools.dashboard
+
+# Web dashboard (FastAPI). Auto data source: Postgres -> DuckDB -> demo. Needs the
+# web extra (pip install -e ".[web]"). MODE=demo|duckdb|postgres, PORT=8000.
+webui:
+	@$(PYTHON) -m sportsball.web.app --mode $(or $(MODE),auto) --port $(or $(PORT),8000)
 
 health:
 	@echo "Checking system health..."
@@ -67,6 +73,27 @@ player-strength:
 # Point-in-time (season-to-date) roster strength per team-game -> team_strength_pit.
 roster-pit:
 	@DB_HOST=localhost $(PYTHON) scripts/precompute_roster_pit.py
+
+# Point-in-time roster availability per team-game (the injuries lever) ->
+# team_availability_pit. Feeds the model's availability_diff feature.
+ingest-injuries:
+	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.ingest_injuries
+
+# Offline end-to-end dry run on a SYNTHETIC season (no data/network/DB needed):
+# exercises the real walk_forward + holdout + backtest + odds-ingest code and
+# reports the availability feature's lift. Needs the duckdb extra.
+dryrun:
+	@$(PYTHON) scripts/offline_dryrun.py
+
+# Measure the v4 algorithm changes (feature lift, ensemble, calibration,
+# uncertainty-Kelly) out-of-sample on a synthetic season. No data needed.
+measure-algos:
+	@$(PYTHON) scripts/measure_algorithms.py
+
+# Closing odds (real lines) -> events.home_close/away_close, unblocking real CLV.
+# FILE=path for an offline JSON/CSV feed, or set ODDS_API_KEY for The Odds API.
+ingest-odds:
+	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.ingest_odds $(if $(FILE),--file $(FILE),)
 
 # Train + out-of-sample (chronological holdout) eval against the DuckDB store,
 # no Postgres needed. Add WRITE=1 to also persist Engine-loadable artifacts.

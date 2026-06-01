@@ -1,16 +1,16 @@
 """Train and *out-of-sample* evaluate the win-probability model from DuckDB.
 
 The model pipeline normally reads FINAL games from Postgres. This is the
-DuckDB-backed path: it trains the real v2 model (shared ``walk_forward`` + feature
+DuckDB-backed path: it trains the real model (shared ``walk_forward`` + feature
 builder + standardizing logistic) directly on the tens of thousands of games in
 ``data/sportsball.duckdb`` — no server, no schema dance — and reports a proper
 **chronological holdout** (fit on the earlier games, score the later ones), so the
 numbers reflect generalization rather than the in-sample fit ``train.py`` prints.
 
-It also compares the new 7-feature model against the old single-feature
+It also compares the full feature model against the old single-feature
 (Elo-only) baseline, which is the honest "did this upgrade regress?" check.
 
-With ``--write`` it persists the v2 artifacts to ``models/`` exactly as
+With ``--write`` it persists the artifacts to ``models/`` exactly as
 ``make retrain`` would, so the Engine can load them.
 
 Usage:
@@ -122,7 +122,7 @@ def main() -> None:
     print("\nChronological holdout (fit earlier games, score later) "
           f"— test n={v2['n_test']}, home-win base rate {base_rate:.3f}")
     print(f"{'model':<22}{'brier':>10}{'log_loss':>12}{'accuracy':>12}")
-    for name, m in (("v1 Elo-only (1 feat)", v1), ("v2 full (7 feat)", v2)):
+    for name, m in (("v1 Elo-only (1 feat)", v1), (f"full ({feat.N_FEATURES} feat)", v2)):
         print(f"{name:<22}{m['brier']:>10.4f}{m['log_loss']:>12.4f}{m['accuracy']:>12.4f}")
     better = "v2 ✓" if v2["log_loss"] < v1["log_loss"] else "v1 (v2 regressed!)"
     print(f"\nLower log-loss is better → {better}")

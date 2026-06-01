@@ -232,9 +232,10 @@ prices underdogs correctly.
 
 ## 6. Engineering
 
-* **Reproducibility.** 154 unit tests run with in-memory fakes — no Redis, Postgres,
+* **Reproducibility.** 233 unit tests run with in-memory fakes — no Redis, Postgres,
   network, or `slack_sdk` on the default path — and on CI (GitHub Actions, Python
-  3.11 + 3.12) on every push.
+  3.11 + 3.12) on every push, alongside an offline end-to-end dry-run and an
+  algorithm-lift measurement smoke (both on synthetic data).
 * **Purity discipline.** `quant/` and the feature builder are I/O-free, which is what
   makes the math unit-testable and the train/serve contract enforceable.
 * **Honest serving.** Model artifacts (`win_prob_model.pkl`, `team_state.json`,

@@ -7,7 +7,7 @@
 
 Sportsball is an autonomous, distributed-agent quantitative trading pipeline and validation environment. It orchestrates an ensemble of specialized micro-agents to ingest sports data, calculate real-time expected value ($EV$), detect cross-market arbitrage opportunities, and size capital with the fractional Kelly criterion.
 
-> **What this is (and isn't):** Sportsball runs in **paper-trading / simulation mode** by default (`EXECUTION_MODE=PAPER`). It is a research and demonstration harness for sports-market modeling and execution logic — it does **not** place real bets and ships **no proven edge** out of the box. The default probability source is randomized; real alpha requires training a model on backfilled history. See **[Known Limitations](docs/ARCHITECTURE.md#5-known-limitations)** for an honest accounting of what works end-to-end today.
+> **What this is (and isn't):** Sportsball runs in **paper-trading / simulation mode** by default (`EXECUTION_MODE=PAPER`). It is a research and demonstration harness for sports-market modeling and execution logic — it does **not** place real bets and ships **no proven edge** out of the box. The Engine **abstains entirely when it has no trained model** — it never stakes on a producer-supplied or random probability. Real alpha requires training on backfilled history and is gated on **Closing Line Value** vs. a sharp closing line, which needs a real odds feed. See **[Known Limitations](docs/ARCHITECTURE.md#5-known-limitations)** and the **[Roadmap](docs/ROADMAP.md)** for an honest accounting of what works end-to-end today.
 
 ---
 
@@ -28,6 +28,7 @@ docker compose up -d --build
 
 ### 3. Verify & Monitor
 *   **Live Logs:** `docker compose logs -f`
+*   **Web Dashboard:** `make webui` → `http://127.0.0.1:8000` (KPIs, equity curve, CLV + model-status panels; runs offline on demo data with no DB)
 *   **CLI Dashboard:** `make dashboard`
 *   **Performance Charts:** `make plot` (PnL) or `make calibrate` (Model Accuracy)
 
@@ -37,13 +38,15 @@ free (no API key)** and train:
 ```bash
 make bootstrap    # ensure schema (idempotent) + load DuckDB history -> events
 make ingest-nba   # (or this) thousands of real games from nba_api -> events
-make retrain      # optimize Elo params + fit the v2 win-probability model
+make retrain      # optimize Elo params + fit the v4 win-probability model
 make eval-duckdb  # out-of-sample walk-forward holdout (Brier/log-loss, no Postgres)
+make measure-algos # quantify feature/ensemble/calibration lift on synthetic data
 ```
 The Retrainer agent then keeps the model fresh on a schedule, and the Engine
-hot-reloads it. For richer features, run `make fetch-stats` + `make player-strength`
-before `make retrain`. (For closing-line value, add `sportsball-backfill` with a
-`RUNDOWN_API_KEY`.)
+hot-reloads it. For richer features, run `make player-strength` / `make roster-pit`
+(roster), `make ingest-injuries` (point-in-time availability), and `make ingest-odds`
+(real closing odds → `events.home_close/away_close`, which lights up `make clv`)
+before `make retrain`.
 
 Validate the live data sources any time with `make smoke` (checks the Gamma API,
 nba_api, and the Polymarket CLOB WebSocket).
@@ -64,8 +67,8 @@ Sportsball includes a suite of Python-driven visualization tools to verify alpha
 
 Professional-grade tools for system health and quantitative audit:
 
-*   **[CLV Tracker](src/sportsball/tools/clv.py)**: Quantify your betting edge by tracking Closing Line Value. Run with `make clv`.
-*   **[Model Evaluator](src/sportsball/tools/evaluate.py)**: Audit probability accuracy using Brier Score and Log-Loss. Run with `make evaluate`.
+*   **[CLV Tracker](src/sportsball/tools/clv.py)**: Closing Line Value — the **primary edge metric** — over all evaluated signals (largest sample) and filled trades. Run with `make clv`.
+*   **[Model Evaluator](src/sportsball/tools/evaluate.py)**: Leads with the CLV edge gate, then Brier Score / Log-Loss as a calibration check. Run with `make evaluate`.
 *   **[Health Monitor](src/sportsball/tools/health.py)**: Real probe of Redis/Postgres, queue depth, and exposure (exits non-zero when degraded). Run with `make health`.
 *   **[Advanced Stats Fetcher](scripts/fetch_nba_stats.py)**: Enrichment tool for real-time NBA features. Run with `make fetch-stats`.
 
@@ -159,24 +162,26 @@ image; each agent is a console entrypoint (`sportsball-oracle`, `-engine`, …).
 ├── Dockerfile                         # Single base image for all roles
 ├── [src/sportsball/](src/sportsball/)             # The package
 │   ├── config.py · db.py · broker.py · store.py · matching.py · logging_conf.py  # Infra + repository
-│   ├── [quant/](src/sportsball/quant/)            # Pure math: odds, poisson, models, arbitrage, portfolio
+│   ├── [quant/](src/sportsball/quant/)            # Pure math: odds, poisson, models, arbitrage, portfolio, features, calibration
 │   ├── [markets/](src/sportsball/markets/)        # Polymarket Gamma discovery
 │   ├── [agents/](src/sportsball/agents/)          # oracle · scout · engine · sniper · settlement · retrainer · approver
 │   ├── [notify/](src/sportsball/notify/)          # Slack: blocks (pure) · slack (Notifier) · gate
-│   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · retrain · bootstrap · backfill(_signals) · ingest_nba
-│   └── [tools/](src/sportsball/tools/)            # dashboard · health · clv · evaluate · smoke · digest
-├── [scripts/](scripts/)               # Host visualizations, stats enrichment & DuckDB ingest
-└── [tests/](tests/)                   # Unit suite (154 tests) + backtest pipeline
+│   ├── [web/](src/sportsball/web/)                # FastAPI dashboard: providers (demo/duckdb/postgres) · app
+│   ├── [pipelines/](src/sportsball/pipelines/)    # optimize · train · retrain · bootstrap · backfill(_signals) · ingest_nba/injuries/odds
+│   └── [tools/](src/sportsball/tools/)            # dashboard · webui · health · clv · evaluate · smoke · digest
+├── [scripts/](scripts/)               # Host visualizations, stats enrichment, DuckDB ingest, offline dry-run & measurement
+└── [tests/](tests/)                   # Unit suite (233 tests) + backtest pipeline
 ```
 
 ---
 
 ## ─── Core Modules ───
 
-*   **[Analytics Engine](src/sportsball/agents/engine.py)**: Consumes signals, models win probability, prices EV, sizes with Kelly, and gates on portfolio risk. Abstains when it has no trained model.
-*   **[Arbitrage Logic](src/sportsball/quant/arbitrage.py)**: Real-time cross-venue discrepancy detection.
+*   **[Analytics Engine](src/sportsball/agents/engine.py)**: Consumes signals, models win probability, **line-shops the best price across venues**, prices EV, sizes with **uncertainty-aware** fractional Kelly, and gates on portfolio risk. Abstains when it has no trained model.
+*   **[Arbitrage Logic](src/sportsball/quant/arbitrage.py)**: Cross-venue discrepancy detection on an **order-independent matchup key** (aligns regardless of home/away).
 *   **[Portfolio Manager](src/sportsball/quant/portfolio.py)**: Global exposure and correlation guards.
-*   **[Training Pipeline](src/sportsball/pipelines/train.py)**: Walk-forward Elo + Logistic Regression, writing the model the Engine loads.
+*   **[Training Pipeline](src/sportsball/pipelines/train.py)**: Walk-forward Elo + a 9-feature standardizing logistic **ensembled with a gradient-boosted tree**, with auto-selected (temperature/isotonic) **calibration**; writes the model the Engine loads.
+*   **[Web Dashboard](src/sportsball/web/app.py)**: FastAPI KPIs, equity curve, CLV + model-status panels (`make webui`; demo/DuckDB/Postgres data sources).
 *   **[Backtest Pipeline](tests/backtest_pipeline.py)**: Historical simulation and strategy validation engine.
 
 ---
@@ -190,6 +195,7 @@ All runtime behavior is driven by two files. Copy `.env.example` to `.env` and e
 | Variable | Default | Used by | Description |
 |----------|---------|---------|-------------|
 | `RUNDOWN_API_KEY` | _(unset)_ | Oracle, scraper | The Rundown API key. If unset/placeholder, the Oracle runs in **mock mode**. |
+| `ODDS_API_KEY` | _(unset)_ | `ingest-odds` | The Odds API key for real closing odds → `events.home_close/away_close` (or use `make ingest-odds FILE=feed.json` offline). Unlocks CLV. |
 | `EXECUTION_MODE` | `PAPER` | Sniper | `PAPER` simulates fills with slippage. Any other value skips execution (live trading is not implemented). |
 | `SLIPPAGE_TOLERANCE_PCT` | `0.005` | Sniper | Reject a simulated fill if slippage exceeds this fraction. |
 | `POLLING_INTERVAL` | `30` | Oracle | Seconds between Oracle line pulls. |
@@ -208,6 +214,8 @@ All runtime behavior is driven by two files. Copy `.env.example` to `.env` and e
 |-----|---------|---------|
 | `safety_buffer_ev` | `0.02` | Minimum EV required to emit an execution signal (model-variance cushion). |
 | `kelly_multiplier` | `0.25` | Fraction of full Kelly to stake (quarter-Kelly). |
+| `uncertainty_scaling` | `true` | Shrink the Kelly stake by the model's calibration-confidence (less-certain model → smaller stake). |
+| `model_ensemble` | `true` | Serve a 50/50 logistic + gradient-boosted-tree ensemble (vs. logistic alone). |
 | `default_slippage` | `0.005` | Reference slippage for simulations. |
 | `max_global_exposure_pct` | `0.15` | Hard cap on total simultaneous staked fraction across all open trades. |
 | `correlation_penalty_multiplier` | `0.5` | Size multiplier applied when a new bet shares an event with an existing position. |

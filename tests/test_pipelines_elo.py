@@ -24,7 +24,7 @@ def test_first_game_feature_is_hfa_only():
     # both teams start at 1500, so elo_diff_hfa == HFA and other features are neutral 0.
     assert rows[0].features[0] == pytest.approx(50)
     assert rows[0].actual == 1.0
-    assert rows[0].features[1:] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert rows[0].features[1:] == [0.0] * (len(rows[0].features) - 1)
 
 
 def test_snapshots_have_full_shape():

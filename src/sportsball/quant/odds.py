@@ -23,6 +23,20 @@ def implied_prob(decimal_odds: float) -> float:
     return 1.0 / decimal_odds if decimal_odds > 0 else 0.0
 
 
+def devig_two_way(home_odds: float, away_odds: float):
+    """No-vig implied probability the HOME side wins from two decimal prices.
+
+    Removes the bookmaker margin by normalizing the two implied probabilities to
+    sum to 1 (proportional / "multiplicative" de-vig). Returns ``None`` when either
+    price is missing or ≤ 1 (no real market), so callers degrade to neutral.
+    """
+    if not home_odds or not away_odds or home_odds <= 1 or away_odds <= 1:
+        return None
+    ih, ia = 1.0 / home_odds, 1.0 / away_odds
+    total = ih + ia
+    return ih / total if total > 0 else None
+
+
 def calculate_ev(true_prob: float, odds: float) -> float:
     """Expected value per unit staked: ``EV = P_true * odds - 1``."""
     return (true_prob * odds) - 1

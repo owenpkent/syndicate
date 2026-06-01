@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from typing import Optional
 
 # Mascots that are two words (so "last token" would truncate them).
 TWO_WORD_MASCOTS = {
@@ -64,6 +65,32 @@ def canonical_event_id(sport: str, when, away_team: str, home_team: str) -> str:
     ``nba_20240115_lakers_at_celtics``.
     """
     return f"{_slug(sport)}_{_date_str(when)}_{normalize_team(away_team)}_at_{normalize_team(home_team)}"
+
+
+def matchup_key(event_id: str) -> Optional[str]:
+    """Order-independent matchup key from a canonical event_id.
+
+    :func:`canonical_event_id` is oriented (``sport_date_<away>_at_<home>``), so two
+    venues that disagree about home/away — Polymarket never exposes it — mint
+    *different* event_ids for the same game and their prices never meet in the
+    arbitrage book. This collapses both orientations onto one key by sorting the
+    two team tokens: ``nba_20240115_lakers_at_celtics`` and
+    ``nba_20240115_celtics_at_lakers`` both yield ``nba_20240115_celtics_lakers``.
+
+    Returns ``None`` for any id not in canonical ``..._<a>_at_<b>`` shape, so a
+    non-canonical id (e.g. a raw token from another source) is handled by the
+    caller's fallback rather than silently mis-keyed.
+    """
+    if not event_id:
+        return None
+    parts = event_id.split("_")
+    # canonical shape is [sport, date, away, "at", home]; team tokens are slugged
+    # (no underscores), so "at" is the lone separator we can pivot on.
+    if len(parts) != 5 or parts[3] != "at":
+        return None
+    sport, when, away, _at, home = parts
+    a, b = sorted((away, home))
+    return f"{sport}_{when}_{a}_{b}"
 
 
 def parse_event_date(event_id: str) -> date | None:

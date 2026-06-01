@@ -21,6 +21,7 @@ from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
 
 from ..logging_conf import get_logger
+from . import calibration
 from . import features as feat
 from .features import TeamSnapshot, neutral_snapshot
 
@@ -89,6 +90,36 @@ class MonteCarloPricer:
         }
 
 
+class EnsembleModel:
+    """A weighted average of fitted probability models over the same features.
+
+    "Ensemble many weak, decorrelated signals" is the recurring lesson from the
+    quant funds ([RESEARCH_NOTES](../../docs/RESEARCH_NOTES.md)). Here it blends the
+    standardizing logistic (linear, well-calibrated) with a gradient-boosted tree
+    (captures interactions/non-linearity) — two learners that err differently.
+
+    Exposes just enough of the sklearn estimator API (``predict_proba``/``score``)
+    that :class:`ModelBundle` and the trainer treat it like any other model, so the
+    serve path and the persisted artifact are unchanged (no schema bump).
+    """
+
+    def __init__(self, members):
+        # members: list of (fitted_estimator, weight)
+        self.members = [(est, float(w)) for est, w in members]
+
+    def predict_proba(self, X):
+        total = sum(w for _, w in self.members) or 1.0
+        out = None
+        for est, w in self.members:
+            p = np.asarray(est.predict_proba(X), dtype=float) * (w / total)
+            out = p if out is None else out + p
+        return out
+
+    def score(self, X, y) -> float:
+        preds = (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+        return float((preds == np.asarray(y)).mean())
+
+
 @dataclass
 class TeamStat:
     net_rating: float
@@ -145,12 +176,17 @@ class ModelBundle:
         current_date: Optional[date] = None,
         home_stat: Optional[TeamStat] = None,  # noqa: ARG002 - kept for call compatibility
         away_stat: Optional[TeamStat] = None,  # noqa: ARG002
+        home_availability: Optional[float] = None,
+        away_availability: Optional[float] = None,
+        home_market_prob: Optional[float] = None,
     ) -> float:
         """Probability the home team wins, from the full feature vector.
 
         The net-rating and roster features are **point-in-time**: they come from
         the team snapshot's season-to-date values, reset to 0 when the game falls
-        in a later season than the snapshot (no prior games yet). ``home_stat`` /
+        in a later season than the snapshot (no prior games yet). Availability is
+        passed live by the caller (tonight's injury-adjusted value), not taken
+        from the stale snapshot; ``None`` -> 0 leaves it inert. ``home_stat`` /
         ``away_stat`` are ignored (kept only so existing callers don't break).
         """
         home_snap = self.snapshots.get(home_team) or neutral_snapshot()
@@ -167,9 +203,15 @@ class ModelBundle:
         row = feat.build_feature_row(
             home_snap, away_snap, current_date, float(self.meta["hfa"]),
             TeamStat(h_net, 0.0), TeamStat(a_net, 0.0), h_roster, a_roster,
+            home_availability=home_availability, away_availability=away_availability,
+            home_market_prob=home_market_prob,
         )
         p = float(self.model.predict_proba([row])[0][1])
-        # Post-hoc calibration (T defaults to 1.0 / no-op for older artifacts).
+        # Post-hoc calibration: prefer the richer spec (temperature OR isotonic);
+        # fall back to the legacy scalar temperature for older artifacts.
+        spec = self.meta.get("calibration")
+        if spec:
+            return float(calibration.apply(p, spec))
         return feat.temperature_scale(p, float(self.meta.get("temperature", 1.0)))
 
     def predict_participant_prob(self, home_team, away_team, participant, *,
@@ -189,4 +231,5 @@ def _snapshot_from_json(d: dict) -> TeamSnapshot:
         net_eff=float(d.get("net_eff", 0.0)),
         roster=float(d.get("roster", 0.0)),
         season=d.get("season"),
+        availability=float(d.get("availability", 0.0)),
     )

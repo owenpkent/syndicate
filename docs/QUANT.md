@@ -21,7 +21,7 @@ the modeling pipelines in [`src/sportsball/pipelines/`](../src/sportsball/pipeli
   events (FINAL scores)                          market_signal {odds, matchup, …}
         │                                              │
         ▼  walk Elo forward (MOV + carryover)          ▼  ModelBundle.predict
-  7-feature row + outcome per game                build_feature_row(...) [shared]
+  9-feature row + outcome per game                build_feature_row(...) [shared]
         │                                              │
         ▼  optimize K, HFA  (L-BFGS-B, log-loss)       ▼  scaler+logistic σ(·) → P_true
   optimized_params.json                                │
@@ -87,9 +87,9 @@ is written to `optimized_params.json` and consumed by the trainer.
 
 ### 2.3 The feature vector
 
-Rather than a single Elo differential, the model consumes a **7-feature** vector
-(`FEATURE_ORDER` in `features.py`), every element a *difference of per-team
-quantities* so it's symmetric and any missing input degrades to a neutral 0:
+Rather than a single Elo differential, the model consumes a **9-feature** vector
+(`FEATURE_ORDER` in `features.py`), every element antisymmetric under a home/away
+swap so any missing input degrades to a neutral 0:
 
 | # | Feature | Meaning |
 |---|---------|---------|
@@ -100,8 +100,10 @@ quantities* so it's symmetric and any missing input degrades to a neutral 0:
 | 5 | `b2b_away` | 1 if away is on a back-to-back |
 | 6 | `form_diff` | home − away rolling win% over the last `form_window` (10) games |
 | 7 | `player_strength_diff` | home − away **point-in-time** roster strength (§2.5) |
+| 8 | `availability_diff` | home − away **point-in-time** roster availability (§2.5.1) |
+| 9 | `market_logit` | logit of the **no-vig market probability** the home side wins (§2.5.2) |
 
-Both enrichment features are **point-in-time** (season-to-date, prior games only) —
+The first two enrichment features are **point-in-time** (season-to-date, prior games only) —
 not the current-season constants the first version used. `net_rating_diff` is
 computed inside the Elo walk from game scores (no external fetch); `player_strength_diff`
 comes from the precomputed `team_strength_pit` table. Both reset to 0 at the start of
@@ -120,6 +122,16 @@ $$P_{\text{true}} = \sigma\!\Big(\beta_0 + \sum_j \beta_j\, z_j\Big),\qquad z_j 
 For the side named by the market, `predict_participant_prob` returns $P_{\text{true}}$
 for the home side or $1 - P_{\text{true}}$ for the away side.
 
+**Ensemble (default).** Serving is by default a 50/50 blend of this logistic and a
+gradient-boosted tree (`HistGradientBoostingClassifier`) over the same features —
+"ensemble many decorrelated signals" ([RESEARCH_NOTES](RESEARCH_NOTES.md)): the
+linear model is well-calibrated, the tree captures interactions, and they err
+differently. `quant/models.EnsembleModel` averages their `predict_proba`, exposes
+the sklearn API, and pickles transparently into the bundle — same 9-feature
+contract, **no schema change**. Toggle with `strategy.model_ensemble`; the GBM is
+best-effort (a failure falls back to the logistic alone). The calibrator is fit on
+the *same* construction used to serve, so calibration matches the ensemble.
+
 ### 2.5 Player-derived roster strength (Moneyball)
 
 The `player_strength_diff` feature is a **point-in-time** roster strength from the
@@ -136,6 +148,54 @@ point-in-time net-efficiency — season-to-date roster quality and team margin a
 collinear. It's kept (harmless, weight ~0) with the machinery ready for a better
 roster metric (RAPM, availability), but it is not currently a source of edge.
 
+### 2.5.1 Point-in-time availability (the injuries lever)
+
+`availability_diff` (feature 8, added in schema v3) is the roadmap's highest-value missing
+signal — *who is actually playing tonight*, the reason season roster strength was
+flat. It is defined as **the season-to-date strength of the players actually
+available**, computed identically at train and serve so the two can't drift:
+
+* **Train (leakage-free, from the player logs,
+  [`ingest_injuries.py`](../src/sportsball/pipelines/ingest_injuries.py),
+  `make ingest-injuries`):** the players who logged minutes in a game *are* its
+  available roster; each is scored from their **prior** games that season only
+  (never the current game), so a rested or absent star simply isn't in the set and
+  the number drops. Written one row per team-game to `team_availability_pit`.
+* **Serve:** the same scalar over the full roster minus the players ruled out on
+  tonight's injury report; the Engine reads the latest value per team
+  (`store.team_availability`) and passes it to the model.
+
+With no availability rows the feature is **inert** (neutral 0) and the model is
+identical to v2 — so it is honest-by-default, activating only once availability
+data is loaded and a retrain runs. That it is *not* inert when data carries signal
+(adds holdout lift, learns a positive coefficient, shifts the served probability)
+is proven on a synthetic season by
+[`tests/test_availability_integration.py`](../tests/test_availability_integration.py)
+and demonstrated end-to-end by `make dryrun`
+([`scripts/offline_dryrun.py`](../scripts/offline_dryrun.py)). What remains for
+real edge here is **data coverage/quality**, not plumbing.
+
+### 2.5.2 The market line as a feature (Benter)
+
+`market_logit` (feature 9, schema v4) feeds the **market's own probability into the
+model** — the single highest-evidence upgrade from the research ([RESEARCH_NOTES](RESEARCH_NOTES.md)):
+Bill Benter's most profitable move was adding the public's implied probability as
+an input to his handicapping model. We use the **no-vig** estimate (de-vig the two
+decimal prices so they sum to 1, `odds.devig_two_way`), take its logit, and let the
+logistic weight it alongside Elo/rest/form.
+
+* **Train:** de-vig `events.home_close/away_close` (`make ingest-odds`) into
+  P(home) per game, joined leakage-free in the Elo walk.
+* **Serve:** the Engine de-vigs the best two-sided price standing in the arbitrage
+  book for the matchup; unknown → neutral 0 (= logit 0.5), so it never biases a side.
+
+**Caveat (the "echo the market" risk):** if the model is trained on, and bet
+against, the *same* line, it just learns to reproduce the market and finds ~no edge
+— which is honest, not a bug. The value is training on the **closing** line while
+betting an earlier/better price (capturing the move), and benchmarking edge as CLV
+vs. a sharp close — see [ROADMAP Tier 2.4](ROADMAP.md) and issue #1. Inert (0) until
+closing odds are loaded.
+
 > **Train/serve symmetry (and the HFA fix).** The same `build_feature_row` runs in
 > both paths, and `hfa` is read from the persisted `model_meta.json` rather than a
 > hardcoded constant — closing the old skew where serving used `DEFAULT_HFA=50`
@@ -145,20 +205,30 @@ roster metric (RAPM, availability), but it is not currently a source of edge.
 > stale-shaped artifact **abstain** (prompting `make retrain`) rather than feed the
 > model a wrong-width vector.
 
-### 2.6 Calibration (temperature scaling)
+### 2.6 Calibration (auto-selected: temperature or isotonic)
 
 The raw logistic is **systematically over-confident out-of-sample** — on a
 chronological holdout, predicted 0.65 came back 0.58, predicted 0.75 → 0.68
 (Expected Calibration Error ≈ 0.053). Since `EV = P_true·odds − 1` and Kelly both
 trust the probability *level*, over-confidence quietly over-stakes. The trainer
-fits a single **temperature** `T` on a held-out recent tail and persists it in
-`model_meta.json`; the bundle applies it to every prediction:
+fits a calibrator on a held-out recent tail and persists a small JSON spec in
+`model_meta.json` (`calibration`); the bundle applies it purely (numpy) to every
+prediction. Two calibrators are considered ([`quant/calibration.py`](../src/sportsball/quant/calibration.py)):
 
-$$P_{\text{cal}} = \sigma\!\Big(\tfrac{1}{T}\,\operatorname{logit}(P_{\text{true}})\Big)$$
+* **temperature** — divide the logit by a scalar `T`:
+  $P_{\text{cal}} = \sigma\!\big(\tfrac{1}{T}\,\operatorname{logit}(P)\big)$, `T>1`
+  shrinks toward 0.5 (monotonic — ranking/AUC unchanged);
+* **isotonic** — a monotonic piecewise-linear remap (applied via `np.interp` on the
+  fitted knots), which can fix non-uniform miscalibration temperature can't.
 
-`T > 1` shrinks predictions toward 0.5 (monotonic — ranking/AUC unchanged). On the
-holdout, `T ≈ 1.17` cut ECE ~26% (0.057 → 0.042) and improved Brier and log-loss.
-Older artifacts without a `temperature` key default to `T = 1.0` (no-op).
+`method="auto"` fits both on one half of the tail, scores log-loss on the other,
+and keeps the winner (else `identity`), so isotonic is chosen only when it
+*generalizes*. On a well-calibrated model `auto` correctly picks `identity`; on a
+deliberately over-fit one (`make measure-algos`, regime B) temperature cut holdout
+log-loss ~1.03 → 0.42. The **Engine then shrinks the Kelly stake by the model's
+calibration-confidence** (`calibration.confidence`, `strategy.uncertainty_scaling`)
+— a more-tempered model stakes less. Older artifacts fall back to the legacy scalar
+`temperature` (default `T=1.0`, no-op).
 
 ### 2.7 What the features actually contribute
 

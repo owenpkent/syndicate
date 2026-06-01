@@ -56,6 +56,12 @@ class StrategyConfig:
 
     safety_buffer_ev: float = 0.02
     kelly_multiplier: float = 0.25
+    # Shrink the Kelly stake by the model's calibration-confidence (less certain
+    # model -> smaller stake). On by default; set false for plain fractional Kelly.
+    uncertainty_scaling: bool = True
+    # Blend the logistic with a gradient-boosted tree (ensemble) at train time.
+    # On by default; set false to serve the logistic alone.
+    model_ensemble: bool = True
     default_slippage: float = 0.005
     max_global_exposure_pct: float = 0.15
     correlation_penalty_multiplier: float = 0.5
@@ -151,11 +157,18 @@ class Settings:
     rundown_api_key: str | None = field(
         default_factory=lambda: os.getenv("RUNDOWN_API_KEY")
     )
+    odds_api_key: str | None = field(
+        default_factory=lambda: os.getenv("ODDS_API_KEY")
+    )
     slack: SlackConfig = field(default_factory=SlackConfig)
 
     def has_live_rundown_key(self) -> bool:
         key = self.rundown_api_key
         return bool(key) and key != "your_rundown_api_key_here"
+
+    def has_odds_api_key(self) -> bool:
+        key = self.odds_api_key
+        return bool(key) and key != "your_odds_api_key_here"
 
     def as_dict(self) -> dict:
         return asdict(self)

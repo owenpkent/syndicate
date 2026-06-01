@@ -59,10 +59,19 @@ A separate **notification path** (see §6) is one-way: the Sniper, Settlement, a
 
 ### Analytics Engine (The Brain)
 *   Subscribes to all `market_signals`.
-*   **EV Strategy:** Applies statistical models (Regression, Poisson, MC) to determine $P_{\text{true}}$.
-*   **Arbitrage Strategy:** Maintains a cross-venue order book to detect risk-free discrepancies.
-*   Calculates $EV$ and optimal $f^*$ (Kelly size).
+*   **EV Strategy:** Models $P_{\text{true}}$ with the v4 `ModelBundle` (9-feature logistic+GBM ensemble, calibrated). Abstains with no model.
+*   **Arbitrage Strategy:** Maintains a cross-venue book on an **order-independent matchup key** (`matching.matchup_key`) so prices align regardless of home/away.
+*   **Line shopping:** bets the best available number for the side across venues (the arb book doubles as a best-line book).
+*   **Market feature:** de-vigs the best two-sided price (`odds.devig_two_way`) into the model's `market_logit` input.
+*   Calculates $EV$ and sizes with **uncertainty-aware** fractional Kelly (`f^* = multiplier · confidence(calibration) · EV/(odds−1)`).
 *   Logs every signal to **PostgreSQL** for historical analysis.
+
+### Web Dashboard — *optional* (`sportsball-webui`, `make webui`)
+A FastAPI app serving KPI cards (PnL/ROI/win%/CLV), an equity curve, and edge /
+model-status / live panels, polling a JSON `/api/snapshot`. A pluggable
+`DataProvider` renders against Postgres, a DuckDB file, or in-memory demo data
+(the offline default); the model panel reads the real artifacts, so it honestly
+shows the shipped model as live/stale/absent. See `src/sportsball/web/`.
 
 ### Sniper Agent (The Executioner)
 *   Subscribes to `execution_signals`.
@@ -231,11 +240,14 @@ weaknesses; the rest are tracked as the roadmap.
    exercised in automated CI — run `make smoke` after dependency/API changes.
 2. **Cross-venue arbitrage needs parseable sports markets.** The Scout now
    extracts (date, teams) from head-to-head Gamma markets and the Engine prices
-   them, so the Polymarket path is no longer inert. Full cross-venue *arb*
-   alignment with the Oracle is still best-effort: Polymarket doesn't expose
-   home/away, so the Scout adopts a convention (`outcomes[0]=away, [1]=home`); if
-   a venue's order differs, the two `event_id`s won't match. An order-independent
-   matchup key would close this.
+   them, so the Polymarket path is no longer inert. Polymarket still doesn't
+   expose home/away (the Scout adopts `outcomes[0]=away, [1]=home`), but
+   orientation no longer breaks the arbitrage book: it is keyed by
+   `matching.matchup_key` (the sorted-token, order-independent matchup key) with
+   outcomes tracked by team token, so an Oracle line and a reversed-orientation
+   Polymarket line for the same game now meet and compare. The remaining edge case
+   is *settling* a reversed-orientation venue's own `event_id` against the
+   canonical (correctly-oriented) result row.
 
 Contributions that close these are welcome.
 

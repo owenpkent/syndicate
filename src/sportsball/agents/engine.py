@@ -23,13 +23,14 @@ from ..broker import Broker, EXECUTION_SIGNALS, MARKET_SIGNALS
 from ..config import Settings, load_settings
 from ..db import Database
 from ..logging_conf import get_logger
-from ..matching import parse_event_date
+from ..matching import normalize_team, parse_event_date
+from ..quant import calibration
 from ..quant.arbitrage import ArbitrageEngine
 from ..quant.models import ModelBundle, TeamStat
-from ..quant.odds import calculate_ev, calculate_kelly_fraction
+from ..quant.odds import calculate_ev, calculate_kelly_fraction, devig_two_way
 from ..notify.gate import ApprovalGate
 from ..quant.portfolio import PortfolioRiskManager
-from ..store import HOME, Store, parse_market_id, side_for
+from ..store import AWAY, HOME, Store, parse_market_id, side_for
 
 log = get_logger("engine")
 
@@ -68,7 +69,24 @@ def _team_stat(store: Store, team_name: str) -> Optional[TeamStat]:
     return TeamStat(net_rating=float(row[0]), pace=float(row[1]), player_strength=ps)
 
 
-def model_probability(bundle: ModelBundle, store: Store, metadata: dict) -> Optional[float]:
+def _availability(store: Store, team_name: str) -> Optional[float]:
+    """Tonight's roster availability for a team, or None when unknown.
+
+    Read from ``team_availability_pit`` (``make ingest-injuries``); ``None`` ->
+    the availability feature stays neutral (0), so a missing feed never biases a
+    side. Best-effort: any DB hiccup degrades to neutral rather than raising.
+    """
+    if not store.available:
+        return None
+    try:
+        row = store.team_availability(team_name)
+    except Exception:  # noqa: BLE001 - table may be empty/absent
+        return None
+    return float(row[0]) if row and row[0] is not None else None
+
+
+def model_probability(bundle: ModelBundle, store: Store, metadata: dict,
+                      home_market_prob: Optional[float] = None) -> Optional[float]:
     teams = _teams(metadata)
     participant = metadata.get("participant")
     if not teams or not participant:
@@ -80,6 +98,9 @@ def model_probability(bundle: ModelBundle, store: Store, metadata: dict) -> Opti
     return bundle.predict_participant_prob(
         home, away, participant, current_date=current_date,
         home_stat=_team_stat(store, home), away_stat=_team_stat(store, away),
+        home_availability=_availability(store, home),
+        away_availability=_availability(store, away),
+        home_market_prob=home_market_prob,
     )
 
 
@@ -89,12 +110,22 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
     metadata = data.get("metadata", {})
     teams = _teams(metadata)
 
-    # 1. Arbitrage branch (independent of single-market EV).
+    # 1. Arbitrage branch (independent of single-market EV). The returned key is
+    #    order-independent, so prices from venues that disagree on home/away still
+    #    meet in one book; we keep it for cross-book line shopping below.
+    arb_key: Optional[str] = None
+    home_market_prob: Optional[float] = None
     if teams and metadata.get("participant"):
         home, away = teams
-        side_label = "Home" if metadata["participant"] == home else "Away"
-        event_id = arb.update_odds(market_id, odds, metadata.get("source", "Unknown"), side_label)
-        opp = arb.check_arbitrage(event_id) if event_id else None
+        side_label = HOME if metadata["participant"] == home else AWAY
+        arb_key = arb.update_odds(market_id, odds, metadata.get("source", "Unknown"), side_label)
+        # No-vig market prob (Benter feature): when the book has both sides for this
+        # matchup, de-vig the best two-way price into P(home) for the model.
+        best_home = arb.best(arb_key, normalize_team(home)) if arb_key else None
+        best_away = arb.best(arb_key, normalize_team(away)) if arb_key else None
+        if best_home and best_away:
+            home_market_prob = devig_two_way(best_home["odds"], best_away["odds"])
+        opp = arb.check_arbitrage(arb_key) if arb_key else None
         if opp:
             log.info("[ARBITRAGE] %.2f%% margin for %s", opp["profit_margin"] * 100, opp["event_id"])
             broker.push(EXECUTION_SIGNALS, {
@@ -105,7 +136,7 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
     # 2. Probability — modeled only.
     true_prob: Optional[float] = None
     if bundle is not None:
-        true_prob = model_probability(bundle, store, metadata)
+        true_prob = model_probability(bundle, store, metadata, home_market_prob=home_market_prob)
     if true_prob is None and not strategy.require_model:
         true_prob = data.get("true_prob")
 
@@ -116,6 +147,21 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
     home, away = teams
     participant = metadata["participant"]
     side = side_for(participant, home)
+
+    # 2b. Cross-book line shopping. Bet the best number any venue is offering on
+    #     *this exact team* across the matchup book (strictly >= the incoming
+    #     quote). For retail this best-line execution is a more reliable edge than
+    #     out-predicting the closer. event_id/side stay the canonical signal's, so
+    #     settlement is unaffected — only the price (hence EV and size) improves.
+    exec_source = metadata.get("source")
+    exec_market_id = market_id
+    if arb_key is not None:
+        best = arb.best(arb_key, normalize_team(participant))
+        if best and best["odds"] > odds:
+            log.info("[LINE SHOP] %s | %s @ %.4f -> %s @ %.4f",
+                     participant, exec_source, odds, best["source"], best["odds"])
+            odds, exec_source, exec_market_id = best["odds"], best["source"], best["market_id"]
+
     ev = calculate_ev(true_prob, odds)
 
     # 3. Persist the evaluation (ensure the event row exists first for the FK).
@@ -135,17 +181,25 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
         log.info("[REJECT] %s | EV %.4f below buffer", market_id, ev)
         return
 
-    fraction = calculate_kelly_fraction(ev, odds, strategy.kelly_multiplier)
-    sized = PortfolioRiskManager(strategy).evaluate_risk(market_id, fraction, broker.active_trades())
+    # Uncertainty-aware sizing: shrink the Kelly fraction by the model's
+    # calibration-confidence, so a less-certain (more-tempered) model stakes less.
+    meta = getattr(bundle, "meta", None) or {}
+    conf = calibration.confidence(meta.get("calibration")) if strategy.uncertainty_scaling else 1.0
+    mult = strategy.kelly_multiplier * conf
+    fraction = calculate_kelly_fraction(ev, odds, mult)
+    # Risk-key on the venue we'll actually book at (the shopped market_id), so the
+    # exposure check matches the exposure the Sniper sets.
+    sized = PortfolioRiskManager(strategy).evaluate_risk(exec_market_id, fraction, broker.active_trades())
     if sized <= 0:
         log.info("[RISK REJECT] %s | EV %.4f (portfolio constraints)", market_id, ev)
         return
 
     log.info("[SIGNAL] %s | EV %.4f | size %.4f", market_id, ev, sized)
     exec_signal = {
-        "market_id": market_id, "event_id": event_id or parse_market_id(market_id)[1],
+        "market_id": exec_market_id, "event_id": event_id or parse_market_id(market_id)[1],
         "side": side, "home_team": home, "away_team": away,
-        "source": metadata.get("source"), "ev": ev, "fraction": sized, "odds": odds,
+        "source": exec_source, "ev": ev, "fraction": sized, "odds": odds,
+        "kelly_mult": round(mult, 4),
     }
     # Human-in-the-loop: high-EV signals are *suggested* in Slack and only reach
     # the Sniper on Approve. With no gate (default) behavior is unchanged.

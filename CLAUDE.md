@@ -23,6 +23,7 @@ make test      # pytest — 154 unit tests, NO DB/Redis/network needed (uses in-
 make backtest  # run tests/backtest_pipeline.py over mock ticks
 make demo      # seed the DB with fake events/signals/trades for the tools
 make dashboard / health / clv / evaluate / plot / calibrate / backtest-viz
+make webui                    # FastAPI web dashboard (auto: Postgres -> DuckDB -> demo)
 make smoke     # validate LIVE integrations (Gamma API, nba_api, CLOB WebSocket)
 make ingest-nba               # FREE real NBA history (nba_api, no key) -> events
 make bootstrap                # idempotent schema apply + load DuckDB history -> Postgres events
@@ -30,6 +31,8 @@ make retrain                  # the modeling loop: optimize + train (Engine hot-
 make backfill-signals         # persist model predictions as signals (recent window) for evaluate
 make eval-duckdb              # out-of-sample walk-forward holdout vs DuckDB (no Postgres)
 make roster-pit               # point-in-time roster strength -> team_strength_pit
+make ingest-injuries          # point-in-time roster availability -> team_availability_pit
+make ingest-odds              # real closing odds -> events.home/away_close (FILE= or ODDS_API_KEY)
 make measure-features         # holdout feature ablation; model-quality = calibration + sweep
 make backtest-sim             # walk-forward betting backtest (ROI/win%/drawdown vs synthetic market+vig)
 
@@ -76,6 +79,11 @@ Package layout (`src/sportsball/`):
 - `tools/` — dashboard, health, clv, evaluate, smoke (live-integration check), digest
 - `notify/` — Slack: `blocks` (pure Block Kit), `slack` (`Notifier`, no-op when
   unconfigured + error-isolating), `gate` (`ApprovalGate` routing)
+- `web/` — FastAPI dashboard: `providers` (demo / DuckDB / Postgres `DataProvider`s
+  + on-disk `model_status`), `app` (`create_app` + the self-contained HTML page).
+  Runs offline on demo data; `sportsball-webui` / `make webui`. The `[web]` extra
+  (fastapi/uvicorn/httpx) is optional; web tests `importorskip` so the suite stays
+  green without it.
 
 Events are keyed by a **canonical `event_id`** (`matching.canonical_event_id`,
 e.g. `nba_20240115_lakers_at_celtics`) so the Oracle, backfill, NBA ingester, and
@@ -137,8 +145,8 @@ expose home/away). CI runs the suite on push (`.github/workflows/ci.yml`).
 so the full Postgres loop (retrain → backfill-signals → evaluate) runs locally.
 See docs/ARCHITECTURE.md §5.
 
-The win-probability model is **v2** (schema_version 2): MOV-adjusted Elo with
-season carryover, a shared `quant/features.py` builder (7 features) used by both
+The win-probability model is **v4** (schema_version 4): MOV-adjusted Elo with
+season carryover, a shared `quant/features.py` builder (9 features) used by both
 train and serve, a `Pipeline(StandardScaler, LogisticRegression)`, and a
 player-derived roster-strength feature from the DuckDB logs (`make player-strength`),
 and post-hoc **temperature calibration** (fixes out-of-sample over-confidence; `T`
@@ -147,8 +155,28 @@ persisted in `model_meta.json`, applied in `ModelBundle`). Holdout ablation
 lift; the enrichment features are now **point-in-time** (season-to-date): net-eff
 is computed in the Elo walk (adds −0.0009, where the current-season version added
 ~0) and roster strength from `team_strength_pit` (collinear with net-eff → ~0,
-kept at weight ~0). Both reset at season boundaries, symmetric train/serve.
-Artifacts are `models/{win_prob_model.pkl, team_state.json, model_meta.json}`; a
-schema/width mismatch makes the Engine abstain until `make retrain`. After pulling
-these changes the shipped 1-feature model is stale — run `make retrain` to
-regenerate. See docs/QUANT.md for the algorithm.
+kept at weight ~0). The v3 addition is **`availability_diff`** — point-in-time
+roster availability (the injuries lever): `make ingest-injuries` derives a
+leakage-free per-team-game availability score from the DuckDB player logs (who
+actually played, scored from prior games only) into `team_availability_pit`; the
+trainer joins it and the Engine's serve path reads the latest value per team.
+With no availability rows the feature is **inert (neutral 0)** and the model
+behaves exactly as v2 — same "plumbing ready, blocked on data" posture as the
+odds feed; once availability data lands a retrain activates it. The v4 addition is
+**`market_logit`** — the logit of the **no-vig market probability** the home side
+wins (Benter's lever: the market line as a *model input*, not just the EV
+benchmark). Training de-vigs `events.home_close/away_close` (`make ingest-odds`);
+the Engine de-vigs the best two-sided price from the arbitrage book at serve.
+Inert (neutral 0) until closing odds are loaded. Post-hoc calibration is now
+**auto-selected** (temperature *or* isotonic, whichever generalizes; persisted as
+`model_meta.calibration`), and the Engine **shrinks the Kelly stake by the
+model's calibration-confidence** (`strategy.uncertainty_scaling`). The served model
+is by default a 50/50 **ensemble** of the standardizing logistic and a
+gradient-boosted tree (`quant/models.EnsembleModel`, `strategy.model_ensemble`;
+same 9-feature contract, so no schema change — it pickles transparently into the
+bundle). All point-in-time features reset at season boundaries, symmetric
+train/serve. Artifacts are
+`models/{win_prob_model.pkl, team_state.json, model_meta.json}`; a schema/width
+mismatch makes the Engine abstain until `make retrain`. After pulling these
+changes the shipped model is stale — run `make retrain` to regenerate. See
+docs/QUANT.md for the algorithm.

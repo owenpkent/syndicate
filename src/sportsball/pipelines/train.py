@@ -14,9 +14,7 @@ import pickle
 from pathlib import Path
 
 import numpy as np
-from scipy.optimize import minimize_scalar
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import log_loss
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -24,7 +22,9 @@ from ..config import load_settings
 from ..db import Database
 from ..logging_conf import get_logger
 from ..matching import normalize_team
+from ..quant import calibration
 from ..quant import features as feat
+from ..quant.models import EnsembleModel
 from ..store import Store
 from ._elo import fetch_history, walk_forward
 
@@ -54,29 +54,91 @@ def _roster_pit_map(store: Store) -> dict:
     return out
 
 
-def _fit_temperature(X, y, cal_frac: float = 0.1) -> float:
-    """Fit a confidence-scaling temperature on a held-out recent tail.
+def _availability_pit_map(store: Store) -> dict:
+    """Point-in-time roster availability keyed by (normalized_team, date_iso).
 
-    Trains a probe model on the earlier games and minimizes log-loss of its
-    predictions on the most recent ``cal_frac`` (the slice closest to the serving
-    distribution). The final model is still fit on ALL data; only T is estimated
-    out-of-fold. Returns 1.0 (no-op) when there's too little data to be reliable.
+    From the ``team_availability_pit`` table (``make ingest-injuries``). Empty when
+    unavailable -> the availability feature contributes 0 (inert), so the model
+    behaves exactly as it did before the feature existed until data lands.
+    """
+    if not store.available:
+        return {}
+    try:
+        rows = store.availability_pit_all()
+    except Exception as exc:  # noqa: BLE001 - table may be absent
+        log.warning("team_availability_pit unavailable (%s); availability feature -> 0.", exc)
+        return {}
+    out = {}
+    for name, game_date, availability in rows:
+        iso = game_date.date().isoformat() if hasattr(game_date, "date") else str(game_date)[:10]
+        out[(normalize_team(name), iso)] = float(availability or 0.0)
+    log.info("Loaded %d point-in-time availability values.", len(out))
+    return out
+
+
+def _market_map(store: Store) -> dict:
+    """No-vig market P(home) keyed by (home_token, away_token, date_iso).
+
+    From ``events`` rows that carry real closing odds (``make ingest-odds``). Empty
+    when unavailable -> the market feature contributes 0 (inert), so the model is
+    unchanged until closing lines are loaded. This is Benter's lever: the market
+    line as a model input, not just the EV benchmark.
+    """
+    from ..quant.odds import devig_two_way
+    if not store.available:
+        return {}
+    try:
+        rows = store.events_with_closing_odds()
+    except Exception as exc:  # noqa: BLE001 - column/table may be absent
+        log.warning("closing odds unavailable (%s); market feature -> 0.", exc)
+        return {}
+    out = {}
+    for event_id, home, away, event_date, home_close, away_close, *_ in rows:
+        p = devig_two_way(float(home_close or 0), float(away_close or 0))
+        if p is None:
+            continue
+        iso = event_date.date().isoformat() if hasattr(event_date, "date") else str(event_date)[:10]
+        out[(normalize_team(home), normalize_team(away), iso)] = p
+    log.info("Loaded %d no-vig market probabilities.", len(out))
+    return out
+
+
+def _logistic() -> Pipeline:
+    return Pipeline([("scaler", StandardScaler()), ("lr", LogisticRegression(max_iter=1000))])
+
+
+def _build_model(X, y, ensemble: bool):
+    """Fit the serving model: a standardizing logistic, optionally ensembled 50/50
+    with a gradient-boosted tree. The GBM is best-effort — any failure (too little
+    data, etc.) falls back to the logistic alone so a retrain never dies on it."""
+    lr = _logistic().fit(X, y)
+    if not ensemble:
+        return lr
+    try:
+        from sklearn.ensemble import HistGradientBoostingClassifier
+        gb = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.05,
+                                            max_depth=3, random_state=0).fit(X, y)
+        return EnsembleModel([(lr, 0.5), (gb, 0.5)])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Ensemble GBM failed (%s); using logistic only.", exc)
+        return lr
+
+
+def _fit_calibration(X, y, ensemble: bool, cal_frac: float = 0.1) -> dict:
+    """Fit a calibration spec on a held-out recent tail (auto: temperature vs isotonic).
+
+    Trains a probe model (same construction as the final model) on the earlier
+    games and calibrates against its predictions on the most recent ``cal_frac``
+    (the slice closest to the serving distribution). The final model is still fit on
+    ALL data; only the calibrator is estimated out-of-fold. Returns ``identity``
+    when there's too little data.
     """
     cut = int(len(X) * (1 - cal_frac))
     if cut < 100 or len(X) - cut < 50:
-        return 1.0
-    probe = Pipeline([("scaler", StandardScaler()),
-                      ("lr", LogisticRegression(max_iter=1000))]).fit(X[:cut], y[:cut])
-    p = np.clip(probe.predict_proba(X[cut:])[:, 1], 1e-6, 1 - 1e-6)
-    logit = np.log(p / (1 - p))
-    yc = y[cut:]
-
-    def nll(T):
-        pc = 1.0 / (1.0 + np.exp(-logit / T))
-        return log_loss(yc, pc, labels=[0, 1])
-
-    res = minimize_scalar(nll, bounds=(0.5, 5.0), method="bounded")
-    return float(res.x) if res.success else 1.0
+        return {"method": "identity"}
+    probe = _build_model(X[:cut], y[:cut], ensemble)
+    p = probe.predict_proba(X[cut:])[:, 1]
+    return calibration.fit(p, y[cut:], method="auto")
 
 
 def run(db: Database) -> bool:
@@ -92,25 +154,29 @@ def run(db: Database) -> bool:
         return False
 
     strategy = load_settings().strategy
-    roster_pit = _roster_pit_map(Store(db))
+    store = Store(db)
+    roster_pit = _roster_pit_map(store)
+    availability_pit = _availability_pit_map(store)
+    market_pit = _market_map(store)
 
     rows, snapshots = walk_forward(
         results, params["k_factor"], params["hfa"],
         mov_enabled=strategy.elo_mov_enabled, carry=strategy.elo_carry,
         gap_days=strategy.elo_offseason_gap_days, form_window=strategy.form_window,
-        roster_pit=roster_pit,
+        roster_pit=roster_pit, availability_pit=availability_pit, market_pit=market_pit,
     )
     X = np.array([r.features for r in rows])
     y = np.array([1 if r.actual >= 1.0 else 0 for r in rows])
 
-    log.info("Training logistic Pipeline on %d samples × %d features...", len(X), feat.N_FEATURES)
-    model = Pipeline([
-        ("scaler", StandardScaler()),
-        ("lr", LogisticRegression(max_iter=1000)),
-    ]).fit(X, y)
-    log.info("In-sample accuracy: %.4f", model.score(X, y))
-    temperature = _fit_temperature(X, y)
-    log.info("Calibration temperature: %.3f (>1 corrects over-confidence)", temperature)
+    ensemble = strategy.model_ensemble
+    log.info("Training %s on %d samples × %d features...",
+             "logistic+GBM ensemble" if ensemble else "logistic Pipeline", len(X), feat.N_FEATURES)
+    model = _build_model(X, y, ensemble)
+    log.info("In-sample accuracy: %.4f (%s)", model.score(X, y),
+             type(model).__name__)
+    calib = _fit_calibration(X, y, ensemble)
+    temperature = float(calib.get("temperature", 1.0))  # back-compat surface
+    log.info("Calibration: %s", calib.get("method"))
 
     MODEL_DIR.mkdir(exist_ok=True)
     (MODEL_DIR / "win_prob_model.pkl").write_bytes(pickle.dumps(model))
@@ -123,6 +189,7 @@ def run(db: Database) -> bool:
             "net_eff": s.net_eff,
             "roster": s.roster,
             "season": s.season,
+            "availability": s.availability,
         } for team, s in snapshots.items()
     }))
     (MODEL_DIR / "model_meta.json").write_text(json.dumps({
@@ -132,6 +199,7 @@ def run(db: Database) -> bool:
         "hfa": params["hfa"],
         "k_factor": params["k_factor"],
         "temperature": temperature,
+        "calibration": calib,
         "mov_enabled": strategy.elo_mov_enabled,
         "carry": strategy.elo_carry,
         "gap_days": strategy.elo_offseason_gap_days,

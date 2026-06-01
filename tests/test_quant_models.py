@@ -12,24 +12,65 @@ from sklearn.preprocessing import StandardScaler
 from sportsball.quant import features as feat
 from sportsball.quant.features import TeamSnapshot
 from sportsball.quant.models import (
+    EnsembleModel,
     LogisticWinProbability,
     ModelBundle,
     MonteCarloPricer,
     TeamStat,
 )
 
+
+class _Stub:
+    """Constant-probability estimator for ensemble-weighting tests."""
+    def __init__(self, p):
+        self.p = p
+
+    def predict_proba(self, X):
+        return np.tile([1 - self.p, self.p], (len(X), 1))
+
+
+class TestEnsemble:
+    def test_equal_weight_is_mean(self):
+        e = EnsembleModel([(_Stub(0.8), 1), (_Stub(0.4), 1)])
+        p = e.predict_proba([[0], [0]])
+        assert p.shape == (2, 2)
+        assert p[0, 1] == pytest.approx(0.6)
+
+    def test_weighting(self):
+        e = EnsembleModel([(_Stub(0.9), 3), (_Stub(0.5), 1)])
+        assert e.predict_proba([[0]])[0, 1] == pytest.approx((0.9 * 3 + 0.5) / 4)
+
+    def test_score(self):
+        assert EnsembleModel([(_Stub(0.8), 1)]).score([[0], [0]], [1, 0]) == pytest.approx(0.5)
+
+    def test_serves_and_pickles_with_real_estimators(self):
+        a, b = _trained_pipeline(), _trained_pipeline()
+        e = EnsembleModel([(a, 0.5), (b, 0.5)])
+        assert e.predict_proba([[0] * feat.N_FEATURES]).shape == (1, 2)
+        e2 = pickle.loads(pickle.dumps(e))
+        assert e2.predict_proba([[0] * feat.N_FEATURES]).shape == (1, 2)
+
+    def test_bundle_serves_an_ensemble(self):
+        e = EnsembleModel([(_trained_pipeline(), 0.5), (_trained_pipeline(), 0.5)])
+        bundle = ModelBundle(model=e, snapshots={"Home": TeamSnapshot(elo=1700),
+                                                 "Away": TeamSnapshot(elo=1400)}, meta=_meta())
+        p = bundle.predict_home_prob("Home", "Away")
+        assert 0.0 <= p <= 1.0 and p > 0.5
+
 HFA = 50.0
 
 
 def _trained_pipeline():
-    """A 7-feature logistic Pipeline where elo and net-rating both push the label."""
+    """A 9-feature logistic Pipeline where elo and net-rating both push the label."""
     rng = np.random.default_rng(0)
     X, y = [], []
     for _ in range(600):
         elo = rng.uniform(-400, 400)
         net = rng.uniform(-15, 15)
         form = rng.uniform(-0.5, 0.5)
-        row = [elo, net, rng.uniform(-3, 3), 0.0, 0.0, form, rng.uniform(-1, 1)]
+        # cols: elo, net, rest, b2b_h, b2b_a, form, player_strength, availability, market
+        row = [elo, net, rng.uniform(-3, 3), 0.0, 0.0, form,
+               rng.uniform(-1, 1), rng.uniform(-0.5, 0.5), rng.uniform(-1, 1)]
         score = elo / 120 + net / 5 + form
         y.append(1 if rng.uniform() < 1 / (1 + np.exp(-score)) else 0)
         X.append(row)
@@ -119,6 +160,14 @@ class TestModelBundlePredict:
         hot = _bundle(snaps, _meta(temperature=1.0)).predict_home_prob("Home", "Away")
         warm = _bundle(snaps, _meta(temperature=2.5)).predict_home_prob("Home", "Away")
         assert 0.5 < warm < hot  # same model+inputs, T>1 is less confident
+
+    def test_calibration_spec_overrides_legacy_temperature(self):
+        # An isotonic spec mapping everything to 0.5 should flatten the output,
+        # proving the serve path routes through meta["calibration"].
+        snaps = {"Home": TeamSnapshot(elo=1750), "Away": TeamSnapshot(elo=1350)}
+        spec = {"method": "isotonic", "x": [0.0, 1.0], "y": [0.5, 0.5]}
+        p = _bundle(snaps, _meta(temperature=1.0, calibration=spec)).predict_home_prob("Home", "Away")
+        assert p == pytest.approx(0.5, abs=1e-6)
 
 
 class TestMonteCarlo:

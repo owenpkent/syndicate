@@ -49,16 +49,22 @@ make ingest-nba                       # -> Postgres events (FINAL, scores). Defa
 #    python scripts/ingest_nba_duckdb.py           # 40+ seasons of team results
 #    python scripts/ingest_player_stats_duckdb.py  # 1,012,331 player box scores (Moneyball)
 #    (see SCHEMA.md "DuckDB analytics store")
-# 2. (optional) point-in-time roster feature the model uses:
+# 2. (optional) point-in-time roster + availability features the model uses:
 make roster-pit                       # DuckDB player logs -> team_strength_pit (season-to-date)
+make ingest-injuries                  # DuckDB player logs -> team_availability_pit (who actually played)
+#    (Optional, real closing odds -> events.home/away_close, unblocks `make clv`:)
+make ingest-odds FILE=odds.json       # offline historical feed (no key); or set ODDS_API_KEY
 # 3. Tune Elo hyperparameters by log-loss, then fit the model:
 make retrain                          # = optimize + train (writes models/{model.pkl,team_state,meta})
 ```
 
 Net-efficiency is computed point-in-time inside the Elo walk (no external fetch);
-run `make roster-pit` **before** `make retrain` to also populate the point-in-time
-roster feature. It's optional — absent, that feature is simply 0 (it currently adds
-~0 anyway; see [QUANT §2.7](QUANT.md)). `make retrain` writes
+run `make roster-pit` and `make ingest-injuries` **before** `make retrain` to also
+populate the point-in-time roster and availability features. Both are optional —
+absent, those features are simply 0 (roster currently adds ~0; availability is the
+open data-coverage lever, see [QUANT §2.5.1](QUANT.md)). `make ingest-odds` is
+likewise optional but is what makes `make clv` and a real (vs synthetic-bracket)
+backtest meaningful. `make retrain` writes
 `models/{win_prob_model.pkl, team_state.json, model_meta.json}`; the Engine
 hot-reloads and **abstains** if the artifact's schema doesn't match the code
 (prompting another `make retrain`).
@@ -71,22 +77,36 @@ Validate before trusting it. The rigorous out-of-sample check is the walk-forwar
 holdout (no Postgres needed):
 
 ```bash
-make eval-duckdb              # chronological holdout on the DuckDB store; v1-vs-v2
+make eval-duckdb              # chronological holdout on the DuckDB store; Elo-only vs full
+make dryrun                   # no data at all: synthetic season exercises the whole pipeline
 ```
+
+`make dryrun` ([`scripts/offline_dryrun.py`](../scripts/offline_dryrun.py)) needs
+no data, network, or DB — it generates a synthetic season and runs the real
+`walk_forward` + holdout + betting backtest + closing-odds ingest, reporting the
+availability feature's lift. Useful to confirm the full pipeline is healthy when
+the live data sources are unreachable.
 
 For the Postgres tools, persist the model's predictions then score them:
 
 ```bash
 make backfill-signals         # model P_true per recent FINAL event -> signals
-make evaluate                 # Brier/log-loss on those signals (< 0.25 competitive)
+make evaluate                 # PRIMARY: CLV edge gate; SECONDARY: Brier/log-loss
+make clv                      # CLV over all signals (primary) + filled trades
 ```
 
-> `make evaluate` here scores the **current season** with the end-of-history
-> ratings (the real serving regime), so it's an in-sample sanity check and reads
-> optimistic; treat `make eval-duckdb` as the honest generalization number. Also
-> `make backtest-viz` for the equity curve. `make clv` after live paper
-trading is the truest edge signal — note it needs a closing-line source
-(Rundown backfill), since the free NBA ingest stores scores only.
+> **CLV is the primary edge gate** (positive Closing Line Value ≈ profitable
+> long-run, and it converges in ~tens of bets vs thousands for P&L — see
+> [RESEARCH_NOTES](RESEARCH_NOTES.md)). `make evaluate` now leads with CLV and
+> treats Brier/log-loss as a secondary calibration check; `make clv` reports CLV
+> over **all evaluated signals** (the largest sample) and over filled trades. Both
+> need a closing-line source — `make ingest-odds` (or the Rundown backfill) —
+> since the free NBA ingest stores scores only.
+>
+> `make evaluate`'s Brier here scores the **current season** with end-of-history
+> ratings (the serving regime), so it reads optimistic (in-sample); treat
+> `make eval-duckdb` as the honest generalization number, and `make backtest-viz`
+> for the equity curve.
 
 ---
 
@@ -96,7 +116,8 @@ trading is the truest edge signal — note it needs a closing-line source
 |---------|-------|
 | `make health` / `sportsball-health` | Redis + Postgres reachability, queue depth, exposure, row counts (exit code 0/1) |
 | `make smoke` / `sportsball-smoke` | **Live** integration check: Gamma API markets, nba_api season, CLOB WebSocket (exit 0/1) |
-| `make dashboard` | Trades, realized PnL, arb count, favorite-hit baseline, latest executions |
+| `make dashboard` | Terminal view: trades, realized PnL, arb count, favorite-hit baseline, latest executions |
+| `make webui` (`[web]` extra) | **Web dashboard** at `http://127.0.0.1:8000` — KPIs (PnL/ROI/win%/CLV), equity curve, edge + model-status panels, recent signals/trades. Auto data source: Postgres → DuckDB → demo (`MODE=demo` to force; renders offline with no DB). |
 | `make digest` / `sportsball-digest` | Posts a trailing-24h summary (PnL, exposure, counts, model age) to Slack; no-op without `SLACK_*` |
 | `docker compose logs -f analytics_engine` | Per-signal `[SIGNAL]`/`[REJECT]`/`[ABSTAIN]`/`[ARBITRAGE]`/`[GATE]` decisions |
 
