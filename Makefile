@@ -177,3 +177,8 @@ capture-odds:
 # phase, for the line-movement edge hunt. PHASE=open|close. Free-tier daily cron.
 capture-quotes:
 	@DB_HOST=localhost $(PYTHON) scripts/capture_odds_quotes.py --phase $(or $(PHASE),close) --sport-key $(or $(SPORT),basketball_nba)
+
+# Intraday per-book line snapshots -> DuckDB odds_snapshots (for book lead-lag).
+# Append-only time series. SPORT=odds-api-key. Dense intraday cron (free tier).
+capture-snapshot:
+	@DB_HOST=localhost $(PYTHON) scripts/capture_snapshot.py --sport-key $(or $(SPORT),baseball_mlb)

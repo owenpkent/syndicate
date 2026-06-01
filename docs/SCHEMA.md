@@ -223,3 +223,13 @@ The daily cron captures `open` (morning) + `close` (near tip) for free.
 make ingest-team-advanced                      # possession stats, 1996-97 .. current
 # odds_quotes is a one-time paid backfill; see OPERATIONS.md §9
 ```
+
+### `odds_snapshots` — intraday per-book time series (book lead-lag)
+Written by [`scripts/capture_snapshot.py`](../scripts/capture_snapshot.py)
+(`make capture-snapshot SPORT=baseball_mlb`), an **append-only** capture run on a
+dense intraday cron. Unlike `odds_quotes` (which keeps only open/close per game),
+this keeps **every snapshot**, keyed `(event_id, market, bookmaker, side,
+captured_at)` with `sport`, `point`, `price`, `commence_time`. Reconstructs each
+book's price-vs-time trajectory → **book lead-lag** (which book moves first; beat
+the laggard to the number = CLV by certainty). Live MLB capture (every 2h, free
+tier); the deployable edge from ROADMAP "Modeling the market" §2.

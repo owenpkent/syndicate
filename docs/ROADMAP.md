@@ -146,9 +146,12 @@ exploitable structures:
    recreational books follow minutes later. Beating the laggard to the number
    captures the move with *certainty*, not prediction. **The cleanest deployable
    edge** — but it needs **intraday per-book time-series**, which no free archive
-   publishes (the SBRO archives are consensus open/close only). So it is gated on
-   the live capture building up *with intraday frequency* — the one thing that
-   would benefit from a cheap paid tier; cannot be shortcut with historical data.
+   publishes (the SBRO archives are consensus open/close only). **Now collecting:**
+   `scripts/capture_snapshot.py` (`make capture-snapshot`) appends every snapshot to
+   DuckDB `odds_snapshots`, on a dense intraday MLB cron (every 2h, ~420 cr/mo —
+   free tier). Resolution is 2h (the free-tier cap), so it catches the broad
+   move-order, not minute-level firsts; tighter resolution would want a cheap paid
+   tier. The dataset builds from now; analysis once a few weeks accumulate.
 3. **Behavioral — public bias.** Recreational money over-backs favorites, overs,
    and popular teams; books shade lines accordingly, leaving the unpopular side a
    hair cheap. Fade the bettors, not the teams.
