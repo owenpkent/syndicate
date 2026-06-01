@@ -108,14 +108,26 @@ Strip them out and the market is efficient w.r.t. our data. This is the same
 result as the efficient-book backtest, now confirmed on real multi-book prices.
 (See the `edge-research` memory and `tools/clv.py`.)
 
-**The one path not yet exhausted** needs data we don't have: **clean open→close
-line pairs at known timestamps.** Our historical snapshots are a single near-tip
-pull, which both contaminates "soft" lines with staleness and hides line
-*movement*. `make capture-quotes PHASE=open|close` now records each game's opening
-and closing per-book lines for free (daily cron); a season of open→close pairs
-lets us look for openers that *systematically* move — positive CLV by construction,
-the achievable form of "beat the close." That is the next real experiment, and it
-is gated on **time** (a season of capture), not money.
+**The one real edge: line *movement* (steam).** The SBRO archive
+(`data/nba_archive_10Y.json`, already on disk) carries **opening and closing**
+spreads + totals (2011-2022). Betting the side the total *moved toward*, at the
+**opening** consensus line, settled vs actual: **move≥1 → 57.7% win, +10% ROI;
+move≥4 → 64%, +23%** (monotonic, ~10k bets). This is genuine, not a stale-line
+artifact — the opener is a real bettable line and the edge is the line *moving*
+(the close is provably sharper than the open). **Caveat: our model cannot predict
+the move** (OOS R² ≈ 0 vs *both* open and close — opener MAE 14.80 ≈ close 14.42);
+the move is driven by sharp money / news we don't have. So it is **not predictable
+from our features — only observable in real time.** The deployable form is
+**steam-chasing**: watch a line move, bet the moving side at a number still better
+than close, capturing a *fraction* of the full move. `make capture-quotes`
+(open/close, free daily cron) is the data hook; real-time chasing wants a few
+**intraday** snapshots too.
+
+**This edge is sport-agnostic** — it's market structure, not basketball. So it can
+be deployed on whatever is *in season* (the Odds API `/sports` list shows MLB,
+WNBA, FIFA World Cup, NHL all active in June), rather than waiting for the NBA
+season. **WNBA** reuses the basketball model directly; **MLB** offers the most
+daily volume. Gated on **time** (a season of live capture), not money.
 
 ---
 
@@ -140,7 +152,12 @@ is gated on **time** (a season of capture), not money.
   meet regardless of home/away ([ARCHITECTURE §5](ARCHITECTURE.md#5-known-limitations)).
   Settling a reversed-orientation venue's own event row is the remaining edge case.
 - **Multi-sport.** The Elo/feature/calibration machinery is sport-agnostic; only
-  ingestion is NBA-specific.
+  ingestion is NBA-specific. **Now a near-term lever, not just breadth:** the steam
+  edge (above) is sport-agnostic and the Odds API already covers in-season sports
+  (MLB, WNBA, World Cup, NHL). Pointing `capture-quotes` at an in-season sport
+  starts the live steam dataset *today* instead of waiting for the NBA tip-off.
+  WNBA reuses the basketball model as-is; MLB/soccer need their own features but
+  the line-movement capture needs none.
 - **Batched loads & nightly live-smoke CI** — `bootstrap`/`backfill-signals` insert
   row-by-row; the live integrations aren't in CI.
 
