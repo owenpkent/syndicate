@@ -182,3 +182,8 @@ capture-quotes:
 # Append-only time series. SPORT=odds-api-key. Dense intraday cron (free tier).
 capture-snapshot:
 	@DB_HOST=localhost $(PYTHON) scripts/capture_snapshot.py --sport-key $(or $(SPORT),baseball_mlb)
+
+# Backtest the steam strategy on real open/close archives with realistic execution
+# (capture-fraction phi) + bankroll/Kelly equity curve. MODE=flat|kelly.
+backtest-steam:
+	@$(PYTHON) scripts/backtest_steam.py $(if $(MODE),--mode $(MODE),) $(if $(KELLY),--kelly-frac $(KELLY),)

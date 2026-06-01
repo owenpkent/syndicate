@@ -19,9 +19,12 @@ import json
 from pathlib import Path
 
 import numpy as np
+from scipy.stats import norm
 
 DATA = Path(__file__).resolve().parent.parent / "data"
+PLOTS = DATA / "plots"
 JUICE = 0.91  # -110 -> profit per 1 unit on a win
+DEC = 1.0 + JUICE  # decimal odds at -110
 
 
 def _f(x):
@@ -61,6 +64,57 @@ def simulate(games, phi, minmove):
     return np.array(pnl)
 
 
+def bet_list(games, phi, minmove, sigma):
+    """Per-bet (p_model, won): p_model = the bettor's own win prob, using the
+    close as the fair mean (info available at bet time). Note this can be
+    overconfident — the close isn't perfectly fair on big-move games."""
+    out = []
+    for ot, ct, tot in games:
+        move = ct - ot
+        if abs(move) < minmove:
+            continue
+        L = ct - phi * move
+        if tot == L:
+            continue
+        if move > 0:                                   # Over steam
+            p = 1 - norm.cdf((L - ct) / sigma); won = tot > L
+        else:                                          # Under steam
+            p = norm.cdf((L - ct) / sigma); won = tot < L
+        out.append((p, won))
+    return out
+
+
+def run_bankroll(bets, start, mode, pct, kfrac, max_stake=0.05):
+    """Compounding equity over (p_model, won) bets. Returns (equity_array, metrics).
+    max_stake caps any single bet to a % of bankroll — the standard safety against
+    an overconfident model blowing up under Kelly."""
+    bank = start; eq = [start]
+    for p, won in bets:
+        if mode == "kelly":
+            edge = p * DEC - 1.0                       # f* = edge / net-odds
+            frac = max(0.0, kfrac * edge / JUICE)
+        else:
+            frac = pct
+        frac = min(frac, max_stake)
+        stake = bank * frac
+        bank += stake * JUICE if won else -stake
+        if bank <= 0:
+            bank = 0.0; eq.append(bank); break
+        eq.append(bank)
+    eq = np.array(eq)
+    peak = np.maximum.accumulate(eq)
+    dd = (peak - eq) / peak
+    # longest losing streak by equity decreases
+    streak = mx = 0
+    for i in range(1, len(eq)):
+        streak = streak + 1 if eq[i] < eq[i - 1] else 0
+        mx = max(mx, streak)
+    return eq, {
+        "final": eq[-1], "return%": (eq[-1] / start - 1) * 100, "maxDD%": dd.max() * 100,
+        "min_bank%": eq.min() / start * 100, "ruin": bool(eq[-1] <= 0), "streak": mx, "n": len(bets),
+    }
+
+
 def metrics(pnl):
     if len(pnl) == 0:
         return None
@@ -84,15 +138,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--minmove-sd", type=float, default=0.12,
                     help="min move to bet, as a fraction of the sport's total SD")
+    ap.add_argument("--bankroll", type=float, default=1000.0)
+    ap.add_argument("--mode", choices=("flat", "kelly"), default="flat")
+    ap.add_argument("--pct", type=float, default=0.01, help="flat stake fraction of bankroll")
+    ap.add_argument("--kelly-frac", type=float, default=0.25, help="fraction of full Kelly")
+    ap.add_argument("--equity-sport", default="nba")
+    ap.add_argument("--no-plot", action="store_true")
     args = ap.parse_args()
+
     print("Steam backtest — flat 1u @ -110, entry = close - phi*(close-open).")
     print("phi=1 hindsight upper bound; realistic chasing ~0.3-0.6.\n")
+    sigmas = {}
     for sport in ("nba", "mlb", "nhl", "nfl"):
-        f = DATA / f"{sport}_archive_10Y.json"
-        if not f.exists():
+        if not (DATA / f"{sport}_archive_10Y.json").exists():
             continue
-        g = load(sport)
-        sd = np.std([x[2] for x in g])
+        g = load(sport); sd = np.std([x[2] for x in g])
+        sigmas[sport] = np.std([t - c for o, c, t in g])  # actual-vs-close SD for p_model
         mm = args.minmove_sd * sd
         print(f"=== {sport.upper()} ({len(g)} games, total SD {sd:.1f}, min move {mm:.1f}) ===")
         print(f"{'phi':>5}{'bets':>7}{'win%':>7}{'roi%':>7}{'units':>8}{'maxDD':>7}{'sharpe':>8}{'L-streak':>9}")
@@ -102,6 +163,37 @@ def main():
                 print(f"{phi:>5.1f}{m['n']:>7}{m['win%']:>7.1f}{m['roi%']:>7.2f}"
                       f"{m['units']:>8.0f}{m['maxDD']:>7.0f}{m['sharpe']:>8.1f}{m['streak']:>9}")
         print()
+
+    # --- Bankroll / equity-curve mode ---
+    sport = args.equity_sport
+    g = load(sport); sd = np.std([x[2] for x in g]); mm = args.minmove_sd * sd; sig = sigmas[sport]
+    sizing = f"{args.mode}" + (f" {args.pct:.1%}" if args.mode == "flat" else f" {args.kelly_frac:g}x-Kelly")
+    print(f"=== Bankroll equity ({sport.upper()}, ${args.bankroll:.0f} start, {sizing}) ===")
+    print(f"{'phi':>5}{'bets':>7}{'final$':>11}{'return%':>9}{'maxDD%':>8}{'min-bank%':>10}{'ruin':>6}")
+    curves = {}
+    for phi in (1.0, 0.5, 0.3):
+        eq, m = run_bankroll(bet_list(g, phi, mm, sig), args.bankroll, args.mode, args.pct, args.kelly_frac)
+        curves[phi] = eq
+        print(f"{phi:>5.1f}{m['n']:>7}{m['final']:>11.0f}{m['return%']:>9.1f}{m['maxDD%']:>8.1f}"
+              f"{m['min_bank%']:>10.1f}{('YES' if m['ruin'] else 'no'):>6}")
+
+    if not args.no_plot:
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            PLOTS.mkdir(parents=True, exist_ok=True)
+            plt.figure(figsize=(9, 5))
+            for phi, eq in curves.items():
+                plt.plot(eq, label=f"φ={phi}")
+            plt.axhline(args.bankroll, color="gray", ls=":", lw=1)
+            plt.title(f"Steam bankroll — {sport.upper()} ({sizing})")
+            plt.xlabel("bet #"); plt.ylabel("bankroll ($)"); plt.legend(); plt.tight_layout()
+            out = PLOTS / f"steam_equity_{sport}.png"
+            plt.savefig(out, dpi=110)
+            print(f"\nEquity curve -> {out}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"(plot skipped: {exc})")
 
 
 if __name__ == "__main__":
