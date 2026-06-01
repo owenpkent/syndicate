@@ -10,3 +10,6 @@ dist/
 # Orphaned root-owned remnant of the pre-refactor layout (model artifacts now
 # live in ./models/). Left on disk because it's root-owned; remove with sudo.
 src/analytics_engine/
+
+# Local backups (use an off-machine copy for real durability)
+backups/

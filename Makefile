@@ -10,7 +10,7 @@ PIP=$(PYTHON) -m pip
 .PHONY: setup test dashboard webui health digest smoke plot calibrate clv evaluate fetch-stats demo \
         backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
         player-strength roster-pit ingest-injuries ingest-odds dryrun measure-algos \
-        eval-duckdb measure-features model-quality backtest-sim shell
+        eval-duckdb measure-features model-quality backtest-sim shell backup restore
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -146,3 +146,12 @@ backtest:
 shell:
 	@echo "Entering Postgres shell..."
 	docker exec -it sportsball_db psql -U sportsball_admin -d market_history
+
+# Snapshot durable state -> backups/<timestamp>/ (Postgres dump via container,
+# DuckDB file, models). DIR= to choose a destination root.
+backup:
+	@./scripts/backup.sh $(DIR)
+
+# Restore from a backup dir: make restore DIR=backups/<timestamp>
+restore:
+	@./scripts/restore.sh $(DIR)
