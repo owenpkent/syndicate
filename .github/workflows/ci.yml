@@ -35,3 +35,9 @@ jobs:
       # so a regression in the full pipeline (not just a unit) fails CI.
       - name: Offline end-to-end dry run
         run: python scripts/offline_dryrun.py
+
+      # Measure the v4 algorithm changes (feature lift, ensemble, calibration,
+      # uncertainty-Kelly) out-of-sample on synthetic data — fails if a change
+      # silently stops contributing.
+      - name: Measure algorithm lift
+        run: python scripts/measure_algorithms.py
