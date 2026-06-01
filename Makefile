@@ -11,7 +11,7 @@ PIP=$(PYTHON) -m pip
         backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
         player-strength roster-pit ingest-injuries ingest-odds dryrun measure-algos \
         eval-duckdb measure-features model-quality backtest-sim shell backup restore \
-        ingest-team-advanced backfill-odds-history
+        ingest-team-advanced backfill-odds-history capture-odds
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -167,3 +167,8 @@ restore:
 backfill-odds-history:
 	@DB_HOST=localhost $(PYTHON) scripts/backfill_odds_history.py \
 		$(if $(SINCE),--since $(SINCE),) $(if $(LIMIT),--limit $(LIMIT),) $(if $(BUDGET),--budget $(BUDGET),)
+
+# Capture today's NBA closing lines from The Odds API LIVE endpoint (~1 credit/day,
+# free-tier friendly). Run near tip-off; idempotent. Needs ODDS_API_KEY.
+capture-odds:
+	@DB_HOST=localhost $(PYTHON) scripts/capture_daily_odds.py $(if $(MINCREDITS),--min-credits $(MINCREDITS),)
