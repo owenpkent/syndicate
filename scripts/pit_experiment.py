@@ -66,6 +66,9 @@ def main() -> None:
     tmp.unlink(missing_ok=True)
     print(f"Loaded {len(rows_raw)} games.")
 
+    # load_events returns 7-tuples (…, home_close, away_close); the walk + the
+    # pit_net_eff baseline below both want 5-tuples.
+    rows_raw = [(d, h, a, hs, as_) for (d, h, a, hs, as_, _hc, _ac) in rows_raw]
     frows, _ = walk_forward(rows_raw, ted.K, ted.HFA, mov_enabled=True,
                             carry=0.75, gap_days=90, form_window=10)
     base = np.array([r.features for r in frows])          # 7 std features (net/player are 0 here)
