@@ -101,18 +101,20 @@ Realistic edges, roughly easiest → hardest, with our findings:
    slower and looser than FanDuel/BetMGM. Betting them when they're off the sharp
    consensus *was* **+10–15% in 2022–2024** in our data — but it **decayed to
    −19% in 2025**. Edges die.
-3. **Specific markets** — sides (moneyline/spread) are the most efficient.
-   **Totals (over/under), player props, and second-half markets** are softer. We
-   pulled 124k totals quotes and **haven't analysed them yet** — the most
-   promising unexplored lever.
+3. **Specific markets** — sides (moneyline/spread) are the most efficient;
+   **totals, props, second-half** are softer. We analysed 124k totals quotes:
+   the apparent soft-book totals edge (+16%) was **stale-line artifact** — at
+   realistically bettable line gaps it's ≈0%. Softer ≠ automatically beatable.
 4. **Information speed** — reacting to **injury / lineup news** before the line
    moves. Genuinely exploitable but operationally demanding.
 5. **Genuine predictive modelling** — beating the close with a model. The holy
-   grail, and the thing our model does *not* currently do.
+   grail, and the thing our model does *not* do (proven: sides CLV −1.67%, totals
+   residual R² ≈ 0).
 
-The pattern: edges exist, they live in the **soft corners of the market**, and
-**they decay** — so a live edge needs continuous monitoring, not a frozen
-backtest.
+The pattern: apparent edges keep resolving into **stale/unbettable quotes**, and
+the few real ones (soft-book h2h) **decay**. At realistic execution our data shows
+no live edge — so any edge needs **continuous monitoring on clean prices**, not a
+frozen backtest. See [ROADMAP.md → Edge research](ROADMAP.md).
 
 ---
 

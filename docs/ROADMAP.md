@@ -88,6 +88,35 @@ hasn't fully priced:
 > Blunt version: more aggregation of public box-score data will not do it — the
 > ablation and the efficient-book result both confirm we've hit that ceiling.
 
+### Edge research — what we actually found (2026-06, real odds 2011-2026)
+
+With closing odds loaded and **248k per-book quotes** (23 books, h2h + totals,
+2022-2026) we hunted for a real edge against actual outcomes. The honest result:
+**no capturable edge in historical closing snapshots at realistic execution.**
+
+| Approach | Result |
+|---|---|
+| Model beats the close (sides) | No — CLV **−1.67%**, beat-rate 53% |
+| Model beats the close (totals) | No — residual OOS R² **≈ 0** (linear *and* GBM, with pace/eff/form/rest) |
+| Line-shopping alone | ~breakeven — erases the vig, not an edge |
+| Soft-book +EV vs consensus (h2h) | Real **+10–15% in 2022–24**, **decayed to −19% in 2025** |
+| Soft-book +EV vs consensus (totals) | Looked huge (+16%, t≈10, no decay) but is **stale-line artifact**: bets averaged 7.8 pts off consensus; restricted to a bettable 2–4 pt gap → **+0.3%, ≈ zero** |
+
+The robust through-line: **every apparent edge lived in stale / outlier quotes
+you cannot actually bet** (the absolute-best price, the 4–15 pt-off totals line).
+Strip them out and the market is efficient w.r.t. our data. This is the same
+result as the efficient-book backtest, now confirmed on real multi-book prices.
+(See the `edge-research` memory and `tools/clv.py`.)
+
+**The one path not yet exhausted** needs data we don't have: **clean open→close
+line pairs at known timestamps.** Our historical snapshots are a single near-tip
+pull, which both contaminates "soft" lines with staleness and hides line
+*movement*. `make capture-quotes PHASE=open|close` now records each game's opening
+and closing per-book lines for free (daily cron); a season of open→close pairs
+lets us look for openers that *systematically* move — positive CLV by construction,
+the achievable form of "beat the close." That is the next real experiment, and it
+is gated on **time** (a season of capture), not money.
+
 ---
 
 ## Tier 3 — To *run* it live for real (operational)
