@@ -91,15 +91,22 @@ For the Postgres tools, persist the model's predictions then score them:
 
 ```bash
 make backfill-signals         # model P_true per recent FINAL event -> signals
-make evaluate                 # Brier/log-loss on those signals (< 0.25 competitive)
+make evaluate                 # PRIMARY: CLV edge gate; SECONDARY: Brier/log-loss
+make clv                      # CLV over all signals (primary) + filled trades
 ```
 
-> `make evaluate` here scores the **current season** with the end-of-history
-> ratings (the real serving regime), so it's an in-sample sanity check and reads
-> optimistic; treat `make eval-duckdb` as the honest generalization number. Also
-> `make backtest-viz` for the equity curve. `make clv` after live paper
-trading is the truest edge signal — note it needs a closing-line source
-(Rundown backfill), since the free NBA ingest stores scores only.
+> **CLV is the primary edge gate** (positive Closing Line Value ≈ profitable
+> long-run, and it converges in ~tens of bets vs thousands for P&L — see
+> [RESEARCH_NOTES](RESEARCH_NOTES.md)). `make evaluate` now leads with CLV and
+> treats Brier/log-loss as a secondary calibration check; `make clv` reports CLV
+> over **all evaluated signals** (the largest sample) and over filled trades. Both
+> need a closing-line source — `make ingest-odds` (or the Rundown backfill) —
+> since the free NBA ingest stores scores only.
+>
+> `make evaluate`'s Brier here scores the **current season** with end-of-history
+> ratings (the serving regime), so it reads optimistic (in-sample); treat
+> `make eval-duckdb` as the honest generalization number, and `make backtest-viz`
+> for the equity curve.
 
 ---
 

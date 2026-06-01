@@ -108,9 +108,19 @@ def _performance(trades: list[dict]) -> dict:
     }
 
 
+def _clv_stats(items: list[dict]) -> tuple:
+    """(avg_clv, beat_rate, n) over records carrying a ``clv`` field."""
+    clvs = [r["clv"] for r in items if r.get("clv") is not None]
+    if not clvs:
+        return None, None, 0
+    return round(sum(clvs) / len(clvs), 4), round(sum(1 for c in clvs if c > 0) / len(clvs), 4), len(clvs)
+
+
 def _edge(signals: list[dict], events: list[dict], trades: list[dict]) -> dict:
-    """Edge panel: CLV, favorite baseline, abstain rate."""
-    clvs = [t["clv"] for t in trades if t.get("clv") is not None]
+    """Edge panel: CLV (the primary metric — signals first), favorite baseline, abstain."""
+    # Signal CLV is the headline: every evaluated signal, the largest/fastest sample.
+    s_avg, s_beat, s_n = _clv_stats(signals)
+    t_avg, t_beat, t_n = _clv_stats(trades)
     graded = [e for e in events if e.get("home_score") is not None
               and e.get("home_close") and e.get("away_close")]
     fav_correct = sum(1 for e in graded
@@ -118,9 +128,11 @@ def _edge(signals: list[dict], events: list[dict], trades: list[dict]) -> dict:
     evaluated = len(signals)
     bet = sum(1 for s in signals if s.get("bet"))
     return {
-        "avg_clv": round(sum(clvs) / len(clvs), 4) if clvs else None,
-        "clv_beat_rate": round(sum(1 for c in clvs if c > 0) / len(clvs), 4) if clvs else None,
-        "n_clv": len(clvs),
+        # primary (signals) — kept under the legacy keys the page already reads
+        "avg_clv": s_avg if s_avg is not None else t_avg,
+        "clv_beat_rate": s_beat if s_beat is not None else t_beat,
+        "n_clv": s_n or t_n,
+        "trade_avg_clv": t_avg, "trade_clv_beat_rate": t_beat, "trade_n_clv": t_n,
         "favorite_hit_rate": round(fav_correct / len(graded), 4) if graded else None,
         "events_graded": len(graded),
         "signals_evaluated": evaluated,
@@ -198,14 +210,20 @@ class DemoProvider:
                            "home_score": hs, "away_score": as_,
                            "home_close": close_home, "away_close": close_away})
             bet = ev > 0.02
+            # The signal is priced at an earlier/soft line; the close (side_close)
+            # is the sharp number. CLV = signal odds / close - 1. Model-liked sides
+            # tend to steam toward the model -> modestly positive CLV.
+            signal_odds = round(side_close * (1 + (rng.uniform(0.0, 0.03) if bet
+                                                   else rng.uniform(-0.015, 0.015))), 3)
             signals.append({"ts": ts, "event": f"{away} @ {home}", "side": side,
                             "source": rng.choice(["Pinnacle", "DraftKings", "Polymarket"]),
-                            "odds": side_close, "true_prob": round(side_p, 4),
-                            "ev": ev, "bet": bet})
+                            "odds": signal_odds, "true_prob": round(side_p, 4),
+                            "ev": ev, "bet": bet,
+                            "clv": round(signal_odds / side_close - 1, 4)})
             if not bet:
                 continue
-            # Line-shopped execution: a hair better than the close.
-            exec_odds = round(side_close * (1 + rng.uniform(0.0, 0.03)), 3)
+            # Line-shopped execution: at least the signal price, often a hair better.
+            exec_odds = round(signal_odds * (1 + rng.uniform(0.0, 0.01)), 3)
             stake = round(0.25 * max(0.0, ev) / max(0.01, exec_odds - 1), 4)  # quarter-Kelly
             stake = min(stake, 0.05)
             won = (side == "HOME" and home_won) or (side == "AWAY" and not home_won)

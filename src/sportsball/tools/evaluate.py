@@ -12,6 +12,7 @@ from sklearn.metrics import brier_score_loss, log_loss, mean_squared_error
 from ..config import load_settings
 from ..db import Database
 from ..store import HOME, Store
+from .clv import analyze as clv_analyze, verdict as clv_verdict
 
 
 def evaluate(store: Store) -> dict | None:
@@ -34,11 +35,25 @@ def evaluate(store: Store) -> dict | None:
 
 def main() -> None:
     print("--- Professional Model Evaluation ---")
-    result = evaluate(Store(Database(load_settings().db)))
+    store = Store(Database(load_settings().db))
+
+    # CLV is the PRIMARY edge gate (positive CLV ≈ profitable, faster-converging
+    # than P&L). Brier/log-loss below are the secondary calibration check.
+    clv_res = clv_analyze(store)
+    if clv_res:
+        primary = clv_res["signal"] or clv_res["trade"]
+        print(f"\n[PRIMARY] Closing Line Value: avg {primary['avg_clv'] * 100:+.2f}% "
+              f"over n={primary['n']} (beat-rate {primary['beat_rate'] * 100:.1f}%)")
+        print(f"          -> {clv_verdict(primary['avg_clv'])}")
+    else:
+        print("\n[PRIMARY] CLV: no closing odds yet — run `make ingest-odds` to enable "
+              "the edge gate (the free NBA feed has scores only).")
+
+    result = evaluate(store)
     if not result:
-        print("No matched signals on FINAL events. Run 'make demo' or backfill + train first.")
+        print("\nNo matched signals on FINAL events. Run 'make demo' or backfill + train first.")
         return
-    print(f"Samples evaluated: {result['n']}")
+    print(f"\n[SECONDARY] Calibration check — samples evaluated: {result['n']}")
     print("-" * 32)
     print(f"Brier Score: {result['brier']:.4f}  (benchmark < 0.25)")
     print(f"Log-Loss:    {result['log_loss']:.4f}  (coin flip = 0.693)")

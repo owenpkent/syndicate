@@ -120,7 +120,7 @@ INDEX_HTML = r"""<!doctype html>
     <div class="card kpi"><div id="pnl" class="v">—</div><div class="l">Realized PnL (units)</div></div>
     <div class="card kpi"><div id="roi" class="v">—</div><div class="l">ROI (profit / turnover)</div></div>
     <div class="card kpi"><div id="win" class="v">—</div><div class="l">Win rate</div></div>
-    <div class="card kpi"><div id="clv" class="v">—</div><div class="l">Avg CLV · beat-rate</div></div>
+    <div class="card kpi"><div id="clv" class="v">—</div><div class="l">Signal CLV · beat-rate (primary edge metric)</div></div>
   </div>
 
   <div class="grid cols">
@@ -216,8 +216,10 @@ async function tick(){
   drawEquity(p.equity_curve);
 
   $("edge").innerHTML=[
-    ["Avg CLV", `<span class="${cls(e.avg_clv)}">${sgnPct(e.avg_clv)}</span> (n=${e.n_clv})`],
-    ["CLV beat-rate", pct(e.clv_beat_rate)],
+    ["Signal CLV (primary)", `<span class="${cls(e.avg_clv)}">${sgnPct(e.avg_clv)}</span> `+
+        `<span class="mut">· beat ${pct(e.clv_beat_rate)} · n=${e.n_clv}</span>`],
+    ["Trade CLV (filled)", `<span class="${cls(e.trade_avg_clv)}">${sgnPct(e.trade_avg_clv)}</span> `+
+        `<span class="mut">· beat ${pct(e.trade_clv_beat_rate)} · n=${e.trade_n_clv}</span>`],
     ["Favorite hit-rate", pct(e.favorite_hit_rate)+` <span class="mut">(${e.events_graded} graded)</span>`],
     ["Signals evaluated", e.signals_evaluated],
     ["Signals bet / abstain", `${e.signals_bet} / <span class="warn">${pct(e.abstain_rate)}</span>`],

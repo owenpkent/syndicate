@@ -180,6 +180,18 @@ class Store:
             """
         )
 
+    def signal_clv_rows(self) -> list[tuple]:
+        """(odds, side, home_close, away_close) for every evaluated signal on a
+        FINAL game that has closing lines — the full set CLV is measured over."""
+        return self.db.query(
+            """
+            SELECT s.odds, s.side, e.home_close, e.away_close
+            FROM signals s JOIN events e ON e.event_id = s.event_id
+            WHERE e.status = 'FINAL' AND e.home_close > 0 AND e.away_close > 0
+              AND s.odds > 0
+            """
+        )
+
     def signal_outcome_rows(self) -> list[tuple]:
         """(true_prob, side, home_score, away_score) for signals on FINAL events."""
         return self.db.query(
@@ -228,16 +240,22 @@ class Store:
         sig_rows = self.db.query(
             """
             SELECT s.ts, e.away_team, e.home_team, s.side, s.source, s.odds, s.true_prob, s.ev,
-                   EXISTS(SELECT 1 FROM trades t WHERE t.event_id = s.event_id AND t.side = s.side)
+                   EXISTS(SELECT 1 FROM trades t WHERE t.event_id = s.event_id AND t.side = s.side),
+                   e.home_close, e.away_close
             FROM signals s JOIN events e ON e.event_id = s.event_id
             ORDER BY s.ts DESC LIMIT 500
             """
         )
-        signals = [{"ts": _iso(r[0]), "event": f"{r[1]} @ {r[2]}", "side": r[3],
-                    "source": r[4], "odds": float(r[5]) if r[5] is not None else None,
-                    "true_prob": float(r[6]) if r[6] is not None else None,
-                    "ev": float(r[7]) if r[7] is not None else None, "bet": bool(r[8])}
-                   for r in sig_rows]
+        signals = []
+        for r in sig_rows:
+            odds = float(r[5]) if r[5] is not None else None
+            close = r[9] if r[3] == HOME else r[10]
+            close = float(close) if close is not None else 0.0
+            signals.append({"ts": _iso(r[0]), "event": f"{r[1]} @ {r[2]}", "side": r[3],
+                            "source": r[4], "odds": odds,
+                            "true_prob": float(r[6]) if r[6] is not None else None,
+                            "ev": float(r[7]) if r[7] is not None else None, "bet": bool(r[8]),
+                            "clv": (odds / close - 1) if odds and close > 0 else None})
 
         evt_rows = self.db.query(
             """
