@@ -38,15 +38,22 @@ This document serves as the theoretical foundation for **Project Sportsball**. T
 
 To backfill `events.home_close`/`away_close` and compute real closing-line value,
 `pipelines/ingest_odds.py` takes either an offline file (`make ingest-odds FILE=...`)
-or The Odds API (`ODDS_API_KEY`). **Status (Jun 2026): done for 2011-2022** via the
-SBRO mirror below, converted by `sportsball-sbro-to-feed` and loaded into the DuckDB
-(12,505 games); `market_logit` shows real holdout lift. Researched source comparison:
+or The Odds API (`ODDS_API_KEY`). **Status (Jun 2026): DONE, 2011-2026.** SBRO
+mirror (2011-2022, free) + The Odds API historical backfill (2022-present,
+`make backfill-odds-history`) → **17,338 priced games** in both Postgres and
+DuckDB; the served v4 model is retrained on them and `market_logit` is active
+(holdout log-loss 0.6308→0.6236). Ongoing lines stay current **for free** via
+`make capture-odds` (LIVE endpoint ~1 credit/day, daily cron — fits the free
+500/mo tier). We also did a one-time paid pull of **per-book h2h + totals** into
+DuckDB `odds_quotes` (248k quotes, 23 books) for line-shopping + a totals model.
+First real **CLV: −1.67% (sub-par)** — good predictor, doesn't beat the close.
+Researched source comparison:
 
 | Source | Closing lines? | Depth | Access | Cost | Notes |
 |---|---|---|---|---|---|
 | **SBRO mirror** (`flancast90/sportsbookreview-scraper`) | Yes (closing ML) | 2011→2022 (~13.9k games) | `data/nba_archive_10Y.json` | **free** | **Used.** Pre-joined per-game JSON; convert with `sportsball-sbro-to-feed --format archive`. The original sportsbookreviewsonline.com bulk Excel 404s (classic two-row format still supported via `--format sbro`). Kaggle `ehallmar/nba-historical-stats-and-betting-data` is an alternative (needs auth). |
-| **The Odds API** | Live + historical snapshots | **from ~Jun 2020** | REST | free tier live-only; historical paid, **10× credits** | Already wired. Best for snapshotting *future* closing lines near tip-off. |
-| **TheRundown** | Dedicated closing endpoints (NBA sport id 4) | ~2020 (plan-dependent, **unverified**) | REST | have a key | Verify actual endpoint paths (`docs.therundown.io/llms.txt`) + plan depth before relying on it. |
+| **The Odds API** | Live + historical snapshots | **from ~Jun 2020** | REST | free 500/mo (live); historical **10 cr/market/call** | **Used.** Historical backfilled 2022-present (~13k cr); per-book h2h+totals pulled to `odds_quotes`. Ongoing capture is ~1 cr/day → free tier. |
+| **TheRundown** | Dedicated closing endpoints (NBA sport id 4) | ~2020 (plan-dependent) | REST | had a trial key | **Verified insufficient:** trial tier returns events with **no odds lines** and rate-limit 1 — not usable without a paid plan. |
 | **SportsDataIO** | Yes | from 2019 | REST | paid | — |
 | **OddsJam** | Yes | unspecified | REST | est. ~$500–1000/mo, no public price | — |
 

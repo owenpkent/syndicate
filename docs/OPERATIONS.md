@@ -317,3 +317,40 @@ MIRROR=/mnt/nas_1/sportsball ./scripts/backup.sh   # expect "mirrored OK"
 - Mount errors: `mount error(13)` = bad credentials; timeout/`(115)` = NAS
   unreachable; add `,vers=3.0` (or `,vers=2.1` for old firmware) on negotiation
   failures.
+
+---
+
+## 9. Odds: backfill, ongoing capture, CLV
+
+Real closing odds are loaded for **2011-2026** and the served model uses them.
+
+**Deep history (one-time):**
+
+```bash
+# Free moneyline, 2011-2022 (SBRO mirror):
+curl -sLO https://raw.githubusercontent.com/flancast90/sportsbookreview-scraper/main/data/nba_archive_10Y.json
+sportsball-sbro-to-feed nba_archive_10Y.json -o data/odds_feed.json
+make ingest-odds FILE=data/odds_feed.json          # -> events (Postgres)
+
+# Recent closing lines, 2022-present (The Odds API historical, ~10 cr/game-day):
+make backfill-odds-history SINCE=2022-07-01         # ET-localized; --budget caps spend
+make retrain                                        # activate market_logit on the new coverage
+```
+
+> **Order matters:** `bootstrap` resets `events.home/away_close` to NULL, so run
+> it *before* the odds ingest, never after. Sequence: `bootstrap → ingest-odds →
+> backfill-odds-history → ingest-injuries → retrain`.
+
+**Ongoing capture (free):** `make capture-odds` hits the LIVE endpoint (~1
+credit/call) and applies today's near-closing lines; scheduled via cron
+(`15 17` + `0 20` local, near NBA tips). At ~2 credits/day it fits the free
+500/mo tier, so deep history is the only thing the paid plan was needed for.
+
+**Edge gate:** `make clv` reports Closing Line Value — the primary KPI. As of the
+first real measurement the v4 model is **SUB-PAR (avg CLV −1.67%)**: a good
+predictor that does not beat the sharp close. Gate the model on CLV before
+trusting any backtest ROI.
+
+**Research odds (paid, one-time):** `scripts/backfill_odds_markets_duckdb.py`
+pulled **per-book h2h + totals** into DuckDB `odds_quotes` (248k quotes, 23 books)
+— line-shopping + totals raw material; see SCHEMA.md.

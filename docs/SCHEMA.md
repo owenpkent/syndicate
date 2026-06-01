@@ -192,3 +192,27 @@ python scripts/ingest_nba_duckdb.py            # team results, 1983-84 .. curren
 python scripts/ingest_player_stats_duckdb.py   # player box scores, same range
 # narrower: --seasons 2024-25,2025-26  |  --start 1996-97
 ```
+
+### `team_advanced_game_logs` — possession-based team stats
+Written by [`scripts/ingest_team_advanced_duckdb.py`](../scripts/ingest_team_advanced_duckdb.py)
+(`make ingest-team-advanced`; `TeamGameLogs` measure_type=Advanced, free/no key).
+**71,092 team-games (1996-2026, 99.97% linked)**, keyed `(team_id, game_id)`:
+`off_rating, def_rating, net_rating, pace, ts_pct, efg_pct, ast_pct, ast_to,
+oreb_pct, dreb_pct, reb_pct, tm_tov_pct, pie`. Raw material for a totals/pace
+model. (A possession net rating was measured vs the margin-based `net_rating_diff`
+and found redundant with Elo — see `scripts/possession_experiment.py` — so it is
+**not** a win-prob feature; the data is kept for totals.)
+
+### `odds_quotes` — per-book h2h + totals (line-shopping / totals)
+Written by [`scripts/backfill_odds_markets_duckdb.py`](../scripts/backfill_odds_markets_duckdb.py)
+(The Odds API historical, one-time paid pull). **248,064 quotes, 4,887 games
+(2022-2026), 23 books**, keyed `(event_id, market, bookmaker, side)`:
+`market` (`h2h`/`totals`), `bookmaker`, `side` (team / `Over` / `Under`),
+`point` (totals line; NULL for h2h), `price` (decimal). Unlike
+`events.home_close` (the consensus *median*), this keeps **every book's** quote —
+the basis for line-shopping analysis (best-available vs close) and a totals model.
+
+```bash
+make ingest-team-advanced                      # possession stats, 1996-97 .. current
+# odds_quotes is a one-time paid backfill; see OPERATIONS.md §9
+```

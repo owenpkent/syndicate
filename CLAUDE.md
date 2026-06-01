@@ -34,6 +34,10 @@ make roster-pit               # point-in-time roster strength -> team_strength_p
 make ingest-injuries          # point-in-time roster availability -> team_availability_pit
 make ingest-odds              # real closing odds -> events.home/away_close (FILE= or ODDS_API_KEY; --duckdb for offline)
 sportsball-sbro-to-feed       # convert SBRO export/mirror archive -> ingest-odds feed JSON
+make backfill-odds-history    # Odds API HISTORICAL snapshots -> events (recent closing lines; ~10cr/game-day)
+make capture-odds             # Odds API LIVE snapshot -> today's events (~1cr; free-tier, daily cron)
+make ingest-team-advanced     # nba_api possession stats (off/def/net rating, pace, PIE) -> DuckDB
+make clv                      # Closing Line Value — the primary edge KPI (needs odds + signals)
 make measure-features         # holdout feature ablation; model-quality = calibration + sweep
 make backtest-sim             # walk-forward betting backtest (ROI/win%/drawdown vs synthetic market+vig)
 
@@ -177,13 +181,18 @@ odds feed; once availability data lands a retrain activates it. The v4 addition 
 wins (Benter's lever: the market line as a *model input*, not just the EV
 benchmark). Training de-vigs `events.home_close/away_close` (`make ingest-odds`);
 the Engine de-vigs the best two-sided price from the arbitrage book at serve.
-Real closing odds are now **loaded and measured**: the SBRO mirror archive
-(2011-2022) is converted by `sportsball-sbro-to-feed`, ingested with a vig
-data-quality guard (`ingest_odds.passes_vig_guard`), and applied to 12,505 games
-in the DuckDB (`make ingest-odds FILE=... --duckdb data/sportsball.duckdb`).
-`scripts/train_eval_duckdb.py` shows `market_logit` carries real out-of-sample
-lift (lined-game log-loss 0.6506 -> 0.6462). It still falls back to neutral 0
-where no line exists; the *served* model activates it after a Postgres retrain.
+Real closing odds are now **loaded, served, and measured end-to-end**, 2011-2026:
+the SBRO mirror (2011-2022, `sportsball-sbro-to-feed`) plus **The Odds API
+historical backfill** (2022-present, `make backfill-odds-history`, ET-localized)
+give **17,338 priced games**, all behind the vig guard (`passes_vig_guard`). The
+served v4 model is retrained on them, so `market_logit` is **active** (no longer
+inert). With recent games lined, the holdout lift is un-diluted: **log-loss
+0.6308 -> 0.6236, accuracy 0.6463 -> 0.6587** across 7,159 lined test games.
+Ongoing odds stay current for free via `make capture-odds` (LIVE endpoint, ~1
+credit/day, daily cron). **Honest edge gate — first real CLV** (`make clv`, v4
+signals vs closing, 2025-26): **avg CLV -1.67%, beat-rate 53% -> SUB-PAR**: a
+good predictor that does **not** beat the sharp close (yet). It still falls back
+to neutral 0 where no line exists.
 Post-hoc calibration is now
 **auto-selected** (temperature *or* isotonic, whichever generalizes; persisted as
 `model_meta.calibration`), and the Engine **shrinks the Kelly stake by the
