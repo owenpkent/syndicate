@@ -9,35 +9,46 @@ The takeaways below follow directly from that result.
 
 ---
 
-## Tier 1 — To *measure* a real edge (the one hard blocker)
+## Tier 1 — To *measure* a real edge (largely unblocked)
 
-**Real historical closing odds.** Everything about "does it make money" is
-currently unanswerable: the free NBA data has scores but no lines, so the backtest
-brackets reality between a naive and an efficient market instead of pricing against
-the real one. With actual closing odds, the bracket collapses to a single number —
-**closing-line value (CLV)** and true post-vig ROI.
+**Real historical closing odds.** The free NBA data has scores but no lines, so a
+backtest brackets reality between a naive and an efficient market instead of
+pricing against the real one. With actual closing odds, the bracket collapses to a
+single number: **closing-line value (CLV)** and true post-vig ROI. As of the v4
+work this is **loaded and measured locally** (DuckDB research store); the Postgres
+served-model retrain is the only remaining step.
 
-- **Recommended source (researched):** **sportsbookreviewsonline.com (SBRO)** is the
-  deepest *free* closing-line archive — bulk Excel, closing moneylines + spreads/
-  totals, ~2007→present (the seasons that matter most), $0; feed it via
-  `make ingest-odds FILE=...`. For ongoing/clean lines, **The Odds API** (already
-  wired via `ODDS_API_KEY`) reaches historical snapshots only from ~June 2020 at 10×
-  credits, so use it to snapshot *future* closing lines near tip-off. The existing
-  **Rundown** key has closing endpoints (NBA sport id 4) but its plan depth is
-  unverified — probe before relying on it. **No source covers pre-2019**, so a real
-  CLV backtest tops out at ~2007→present, not the full 1983 history. Detail +
-  caveats: [RESOURCES.md → Historical odds data](RESOURCES.md#historical-odds-data-for-clv).
-- **Data-quality guard (must-have):** a single bad quote can flip backtest ROI from
-  +29% to −6% (arXiv 2306.01740), so reject lines whose two-sided implied probs
-  don't sum to a sane vig (~1.02–1.10) before persisting.
-- **Ingest path is built and waiting:** `make ingest-odds` (`pipelines/ingest_odds`)
-  populates `events.home_close`/`away_close` from either an offline historical feed
-  (`FILE=feed.json`, no key) or The Odds API (`ODDS_API_KEY`), with pure,
-  unit-tested parsers (median consensus line across books). The moment odds land,
-  `make clv` lights up and the backtest can price against real lines instead of the
-  synthetic bracket in [`scripts/backtest.py`](../scripts/backtest.py).
-- **Until then:** the *data* (not the plumbing) is the gating dependency for any
-  monetary claim.
+- **Source (confirmed working):** the **SBRO mirror**
+  [`flancast90/sportsbookreview-scraper`](https://github.com/flancast90/sportsbookreview-scraper)
+  ships `data/nba_archive_10Y.json`: pre-joined closing moneylines, **2011 to 2022,
+  ~13.9k games, free**. (The original sportsbookreviewsonline.com bulk Excel 404s;
+  the mirror is the practical path. ~2007-2011 is reachable from the classic SBRO
+  Excel if needed; **no source covers pre-2007**.) For ongoing/clean lines, **The
+  Odds API** (`ODDS_API_KEY`) reaches snapshots only from ~June 2020 at 10× credits,
+  so use it to snapshot *future* closing lines near tip-off. Detail + caveats:
+  [RESOURCES.md → Historical odds data](RESOURCES.md#historical-odds-data-for-clv).
+- **Converter:** `sportsball-sbro-to-feed` (`pipelines/sbro_to_feed`) reshapes
+  either the mirror JSON (`--format archive`) or the classic SBRO two-row Excel/CSV
+  (`--format sbro --season-start-year`) into the `ingest_odds` feed, mapping terse
+  team labels to canonical event ids.
+- **Data-quality guard (done):** a single bad quote can flip backtest ROI from +29%
+  to −6% (arXiv 2306.01740). `ingest_odds.passes_vig_guard` now rejects any line
+  whose two-sided implied probs fall outside a sane vig band (`[1.01, 1.12]`). On the
+  real archive it dropped 8 corrupt quotes (duplicated/garbage lines), zero false
+  positives.
+- **Ingest path (built + run):** `make ingest-odds FILE=...` populates
+  `events.home_close`/`away_close` (Postgres), or `--duckdb data/sportsball.duckdb`
+  writes the offline research store directly. The archive feed matched **12,505 of
+  13,885 games** to canonical event ids (the ~1.4k misses are franchise renames:
+  Hornets↔Pelicans, Bobcats↔Hornets, NJ↔Brooklyn).
+- **Measured lift:** with odds in the DuckDB, `scripts/train_eval_duckdb.py` builds
+  the `market_logit` feature and reports its out-of-sample holdout lift. On lined
+  games log-loss improves 0.6506 → 0.6462 (+0.0044) and accuracy 0.6245 → 0.6361;
+  blended over all test games (only ~32% lined) it is +0.0020. So `market_logit` is
+  no longer inert; it carries real signal.
+- **Remaining:** bring up Postgres (`make bootstrap` → `make ingest-odds` →
+  `make retrain`) to activate `market_logit` in the *served* model, then `make clv`
+  for real CLV. The shipped model artifacts are still stale v2.
 
 ---
 

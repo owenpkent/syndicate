@@ -52,8 +52,11 @@ make ingest-nba                       # -> Postgres events (FINAL, scores). Defa
 # 2. (optional) point-in-time roster + availability features the model uses:
 make roster-pit                       # DuckDB player logs -> team_strength_pit (season-to-date)
 make ingest-injuries                  # DuckDB player logs -> team_availability_pit (who actually played)
-#    (Optional, real closing odds -> events.home/away_close, unblocks `make clv`:)
-make ingest-odds FILE=odds.json       # offline historical feed (no key); or set ODDS_API_KEY
+#    (Real closing odds -> events.home/away_close, unblocks `make clv` + market_logit.
+#     Free 2011-2022 path via the SBRO mirror; --duckdb writes the offline store directly:)
+curl -sLO https://raw.githubusercontent.com/flancast90/sportsbookreview-scraper/main/data/nba_archive_10Y.json
+sportsball-sbro-to-feed nba_archive_10Y.json -o odds.json   # mirror archive -> feed JSON
+make ingest-odds FILE=odds.json       # -> Postgres events (or add --duckdb data/sportsball.duckdb)
 # 3. Tune Elo hyperparameters by log-loss, then fit the model:
 make retrain                          # = optimize + train (writes models/{model.pkl,team_state,meta})
 ```

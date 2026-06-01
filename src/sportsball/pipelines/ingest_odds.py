@@ -32,6 +32,7 @@ from ..config import load_settings
 from ..db import Database
 from ..logging_conf import get_logger
 from ..matching import canonical_event_id
+from ..quant.odds import implied_prob
 from ..store import Store
 
 log = get_logger("ingest_odds")
@@ -40,8 +41,31 @@ ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
 SPORT_KEYS = {"nba": "basketball_nba", "nfl": "americanfootball_nfl",
               "mlb": "baseball_mlb", "nhl": "icehockey_nhl"}
 
+# A real two-sided book quote's implied probabilities sum to a little over 1.0 —
+# the vig / overround. Typical NBA closing vig is ~1.02 (sharp) to ~1.10 (heavy
+# juice); we reject anything outside a slightly wider band so a mis-paired,
+# stale, or typo'd line never poisons training. The lower bound stays at 1.01
+# (not 1.02) so genuinely sharp / reduced-juice lines — e.g. a -105/-105 book at
+# ~1.025, or a sharp consensus near 1.017 — aren't false-dropped, while the real
+# failure mode (two-favorites mis-pair, a longshot typo) lands well outside it.
+# Provenance: one bad quote flipped a published backtest from +29% to -6% ROI
+# (arXiv 2306.01740), so this guard is load-bearing, not cosmetic.
+VIG_MIN, VIG_MAX = 1.01, 1.12
+
 
 # -- pure core (unit-testable, no I/O) --------------------------------------
+def passes_vig_guard(home_close: float, away_close: float) -> bool:
+    """True if two decimal prices imply a plausible bookmaker vig.
+
+    Rejects quotes whose two-sided implied probabilities sum outside
+    ``[VIG_MIN, VIG_MAX]`` — a sum well below 1 means the sides were mis-paired
+    or one is stale; well above means a typo / off-board quote. Either way the
+    line is not trustworthy enough to persist as a training target.
+    """
+    overround = implied_prob(home_close) + implied_prob(away_close)
+    return VIG_MIN <= overround <= VIG_MAX
+
+
 def _to_decimal(price) -> float | None:
     """Best-effort decimal odds from a price that may be decimal or American.
 
@@ -80,7 +104,7 @@ def parse_file_feed(records: list[dict]) -> list[tuple]:
             continue
         hc = _to_decimal(r.get("home_close"))
         ac = _to_decimal(r.get("away_close"))
-        if hc is None or ac is None:
+        if hc is None or ac is None or not passes_vig_guard(hc, ac):
             continue
         out.append((canonical_event_id(sport, when, away, home), hc, ac))
     return out
@@ -110,8 +134,10 @@ def parse_odds_api(raw: list[dict], sport: str = "nba") -> list[tuple]:
                         prices[oc["name"]].append(dec)
         if not prices[home] or not prices[away]:
             continue
-        out.append((canonical_event_id(sport, when, away, home),
-                    round(median(prices[home]), 4), round(median(prices[away]), 4)))
+        hc, ac = round(median(prices[home]), 4), round(median(prices[away]), 4)
+        if not passes_vig_guard(hc, ac):
+            continue
+        out.append((canonical_event_id(sport, when, away, home), hc, ac))
     return out
 
 
@@ -142,9 +168,39 @@ def apply_closing_odds(store: Store, rows: list[tuple]) -> int:
     return len(rows)
 
 
+def apply_closing_odds_duckdb(db_path: str, rows: list[tuple]) -> tuple[int, int]:
+    """UPDATE ``events.home_close``/``away_close`` in a DuckDB file (offline path).
+
+    The DuckDB research store carries the same ``events`` schema as Postgres, so
+    closing lines can be attached without a server — handy for the local
+    walk-forward eval. Like the Postgres path, lines only *decorate* games we
+    already have, so a feed row whose ``event_id`` isn't in the DuckDB is skipped.
+    Returns ``(matched, total)``.
+    """
+    import duckdb
+    con = duckdb.connect(db_path, read_only=False)
+    try:
+        existing = {r[0] for r in con.execute("SELECT event_id FROM events").fetchall()}
+        matched = 0
+        con.execute("BEGIN TRANSACTION")
+        for event_id, home_close, away_close in rows:
+            if event_id not in existing:
+                continue
+            con.execute("UPDATE events SET home_close = ?, away_close = ? WHERE event_id = ?",
+                        [float(home_close), float(away_close), event_id])
+            matched += 1
+        con.execute("COMMIT")
+    finally:
+        con.close()
+    log.info("DuckDB: applied closing odds to %d of %d feed games.", matched, len(rows))
+    return matched, len(rows)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest real closing odds -> events")
     parser.add_argument("--file", help="offline JSON feed (list of records)")
+    parser.add_argument("--duckdb", help="write to this DuckDB file instead of Postgres "
+                                         "(offline path; requires --file)")
     parser.add_argument("--sport", default="nba")
     args = parser.parse_args()
 
@@ -157,6 +213,10 @@ def main() -> None:
     else:
         log.error("No --file and no ODDS_API_KEY — nothing to ingest. "
                   "See docs/ROADMAP.md Tier 1 (closing-odds feed).")
+        return
+
+    if args.duckdb:
+        apply_closing_odds_duckdb(args.duckdb, rows)
         return
 
     store = Store(Database(settings.db))
