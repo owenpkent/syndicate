@@ -129,6 +129,39 @@ WNBA, FIFA World Cup, NHL all active in June), rather than waiting for the NBA
 season. **WNBA** reuses the basketball model directly; **MLB** offers the most
 daily volume. Gated on **time** (a season of live capture), not money.
 
+### Modeling the market (not the game) — the strategic pivot
+
+The game is efficiently priced; the *price-formation process* is not. Stop
+predicting `P(outcome)` (proven dead) and model how the price *behaves*. Four
+exploitable structures:
+
+1. **Temporal — line movement / steam.** The close is provably sharper than the
+   open, so the move's *direction* is signal (validated: +10–23% ROI). Reverse
+   line movement (line moves against public %) is the canonical version.
+2. **Cross-sectional — book lead-lag.** Sharp books (Pinnacle, Circa) move first;
+   recreational books follow minutes later. Beating the laggard to the number
+   captures the move with *certainty*, not prediction. Needs per-book timestamps —
+   exactly what `odds_quotes` now records. **The cleanest deployable edge.**
+3. **Behavioral — public bias.** Recreational money over-backs favorites, overs,
+   and popular teams; books shade lines accordingly, leaving the unpopular side a
+   hair cheap. Fade the bettors, not the teams.
+4. **Microstructure — timing/execution.** *When* (open, off-hours) and *where*
+   (obscure markets) a line is softest; getting down before it moves.
+
+All of these are **CLV-generating machines**: you systematically obtain a price
+the market later moves past. CLV — not P&L — is the scorecard (significant in tens
+of bets, not thousands).
+
+**First measured result (`scripts/predict_close_experiment.py`, totals 2011-2022):**
+predicting the *game* gave OOS R² ≈ 0, but predicting the **line's move**
+(close−open) from open-time pace/efficiency gives **OOS R² = +0.016 (corr +0.13)** —
+positive, because the opener under-prices current-season pace that the close later
+adds. Betting the opener when our predicted-close diverges >1pt: 61% win, +17% ROI,
+**CLV +2.4 pts** (n=83, thin but directional). The edge is *small and real* where
+game-modeling was *zero*. Next: scale the sample on the live multi-sport capture,
+and build **lead-lag** detection (structure #2) from intraday per-book snapshots —
+the genuine, deployable research direction.
+
 ---
 
 ## Tier 3 — To *run* it live for real (operational)
