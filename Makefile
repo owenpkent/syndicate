@@ -10,7 +10,8 @@ PIP=$(PYTHON) -m pip
 .PHONY: setup test dashboard webui health digest smoke plot calibrate clv evaluate fetch-stats demo \
         backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
         player-strength roster-pit ingest-injuries ingest-odds dryrun measure-algos \
-        eval-duckdb measure-features model-quality backtest-sim shell backup restore ingest-team-advanced
+        eval-duckdb measure-features model-quality backtest-sim shell backup restore \
+        ingest-team-advanced backfill-odds-history
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -160,3 +161,9 @@ backup:
 # Restore from a backup dir: make restore DIR=backups/<timestamp>
 restore:
 	@./scripts/restore.sh $(DIR)
+
+# Backfill closing odds from The Odds API HISTORICAL snapshots (needs ODDS_API_KEY).
+# ~10 credits/game-day. SINCE=YYYY-MM-DD, LIMIT=n (test), BUDGET=credits.
+backfill-odds-history:
+	@DB_HOST=localhost $(PYTHON) scripts/backfill_odds_history.py \
+		$(if $(SINCE),--since $(SINCE),) $(if $(LIMIT),--limit $(LIMIT),) $(if $(BUDGET),--budget $(BUDGET),)
