@@ -23,6 +23,8 @@ dependencies = [
 [project.optional-dependencies]
 # Host-side tooling: visualizations, stats enrichment, tests.
 tools = ["matplotlib>=3.8", "pandas>=2.1", "nba_api>=1.4", "pytest>=8.0"]
+# Local research store + the offline synthetic dry run (scripts/offline_dryrun.py).
+duckdb = ["duckdb>=0.10"]
 
 [project.scripts]
 # Each agent and pipeline is exposed as a console entrypoint so the Docker

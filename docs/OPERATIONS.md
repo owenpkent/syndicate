@@ -49,16 +49,22 @@ make ingest-nba                       # -> Postgres events (FINAL, scores). Defa
 #    python scripts/ingest_nba_duckdb.py           # 40+ seasons of team results
 #    python scripts/ingest_player_stats_duckdb.py  # 1,012,331 player box scores (Moneyball)
 #    (see SCHEMA.md "DuckDB analytics store")
-# 2. (optional) point-in-time roster feature the model uses:
+# 2. (optional) point-in-time roster + availability features the model uses:
 make roster-pit                       # DuckDB player logs -> team_strength_pit (season-to-date)
+make ingest-injuries                  # DuckDB player logs -> team_availability_pit (who actually played)
+#    (Optional, real closing odds -> events.home/away_close, unblocks `make clv`:)
+make ingest-odds FILE=odds.json       # offline historical feed (no key); or set ODDS_API_KEY
 # 3. Tune Elo hyperparameters by log-loss, then fit the model:
 make retrain                          # = optimize + train (writes models/{model.pkl,team_state,meta})
 ```
 
 Net-efficiency is computed point-in-time inside the Elo walk (no external fetch);
-run `make roster-pit` **before** `make retrain` to also populate the point-in-time
-roster feature. It's optional — absent, that feature is simply 0 (it currently adds
-~0 anyway; see [QUANT §2.7](QUANT.md)). `make retrain` writes
+run `make roster-pit` and `make ingest-injuries` **before** `make retrain` to also
+populate the point-in-time roster and availability features. Both are optional —
+absent, those features are simply 0 (roster currently adds ~0; availability is the
+open data-coverage lever, see [QUANT §2.5.1](QUANT.md)). `make ingest-odds` is
+likewise optional but is what makes `make clv` and a real (vs synthetic-bracket)
+backtest meaningful. `make retrain` writes
 `models/{win_prob_model.pkl, team_state.json, model_meta.json}`; the Engine
 hot-reloads and **abstains** if the artifact's schema doesn't match the code
 (prompting another `make retrain`).
@@ -71,8 +77,15 @@ Validate before trusting it. The rigorous out-of-sample check is the walk-forwar
 holdout (no Postgres needed):
 
 ```bash
-make eval-duckdb              # chronological holdout on the DuckDB store; v1-vs-v2
+make eval-duckdb              # chronological holdout on the DuckDB store; Elo-only vs full
+make dryrun                   # no data at all: synthetic season exercises the whole pipeline
 ```
+
+`make dryrun` ([`scripts/offline_dryrun.py`](../scripts/offline_dryrun.py)) needs
+no data, network, or DB — it generates a synthetic season and runs the real
+`walk_forward` + holdout + betting backtest + closing-odds ingest, reporting the
+availability feature's lift. Useful to confirm the full pipeline is healthy when
+the live data sources are unreachable.
 
 For the Postgres tools, persist the model's predictions then score them:
 

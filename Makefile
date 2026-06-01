@@ -9,8 +9,8 @@ PIP=$(PYTHON) -m pip
 
 .PHONY: setup test dashboard health digest smoke plot calibrate clv evaluate fetch-stats demo \
         backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
-        player-strength roster-pit ingest-injuries ingest-odds eval-duckdb measure-features \
-        model-quality backtest-sim shell
+        player-strength roster-pit ingest-injuries ingest-odds dryrun eval-duckdb \
+        measure-features model-quality backtest-sim shell
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -73,6 +73,12 @@ roster-pit:
 # team_availability_pit. Feeds the model's availability_diff feature.
 ingest-injuries:
 	@DB_HOST=localhost $(PYTHON) -m sportsball.pipelines.ingest_injuries
+
+# Offline end-to-end dry run on a SYNTHETIC season (no data/network/DB needed):
+# exercises the real walk_forward + holdout + backtest + odds-ingest code and
+# reports the availability feature's lift. Needs the duckdb extra.
+dryrun:
+	@$(PYTHON) scripts/offline_dryrun.py
 
 # Closing odds (real lines) -> events.home_close/away_close, unblocking real CLV.
 # FILE=path for an offline JSON/CSV feed, or set ODDS_API_KEY for The Odds API.

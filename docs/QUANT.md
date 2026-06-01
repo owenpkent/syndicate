@@ -87,7 +87,7 @@ is written to `optimized_params.json` and consumed by the trainer.
 
 ### 2.3 The feature vector
 
-Rather than a single Elo differential, the model consumes a **7-feature** vector
+Rather than a single Elo differential, the model consumes an **8-feature** vector
 (`FEATURE_ORDER` in `features.py`), every element a *difference of per-team
 quantities* so it's symmetric and any missing input degrades to a neutral 0:
 
@@ -100,8 +100,9 @@ quantities* so it's symmetric and any missing input degrades to a neutral 0:
 | 5 | `b2b_away` | 1 if away is on a back-to-back |
 | 6 | `form_diff` | home − away rolling win% over the last `form_window` (10) games |
 | 7 | `player_strength_diff` | home − away **point-in-time** roster strength (§2.5) |
+| 8 | `availability_diff` | home − away **point-in-time** roster availability (§2.5.1) |
 
-Both enrichment features are **point-in-time** (season-to-date, prior games only) —
+The first two enrichment features are **point-in-time** (season-to-date, prior games only) —
 not the current-season constants the first version used. `net_rating_diff` is
 computed inside the Elo walk from game scores (no external fetch); `player_strength_diff`
 comes from the precomputed `team_strength_pit` table. Both reset to 0 at the start of
@@ -135,6 +136,33 @@ constant — superseded by the point-in-time version.)
 point-in-time net-efficiency — season-to-date roster quality and team margin are
 collinear. It's kept (harmless, weight ~0) with the machinery ready for a better
 roster metric (RAPM, availability), but it is not currently a source of edge.
+
+### 2.5.1 Point-in-time availability (the injuries lever)
+
+`availability_diff` (feature 8, schema v3) is the roadmap's highest-value missing
+signal — *who is actually playing tonight*, the reason season roster strength was
+flat. It is defined as **the season-to-date strength of the players actually
+available**, computed identically at train and serve so the two can't drift:
+
+* **Train (leakage-free, from the player logs,
+  [`ingest_injuries.py`](../src/sportsball/pipelines/ingest_injuries.py),
+  `make ingest-injuries`):** the players who logged minutes in a game *are* its
+  available roster; each is scored from their **prior** games that season only
+  (never the current game), so a rested or absent star simply isn't in the set and
+  the number drops. Written one row per team-game to `team_availability_pit`.
+* **Serve:** the same scalar over the full roster minus the players ruled out on
+  tonight's injury report; the Engine reads the latest value per team
+  (`store.team_availability`) and passes it to the model.
+
+With no availability rows the feature is **inert** (neutral 0) and the model is
+identical to v2 — so it is honest-by-default, activating only once availability
+data is loaded and a retrain runs. That it is *not* inert when data carries signal
+(adds holdout lift, learns a positive coefficient, shifts the served probability)
+is proven on a synthetic season by
+[`tests/test_availability_integration.py`](../tests/test_availability_integration.py)
+and demonstrated end-to-end by `make dryrun`
+([`scripts/offline_dryrun.py`](../scripts/offline_dryrun.py)). What remains for
+real edge here is **data coverage/quality**, not plumbing.
 
 > **Train/serve symmetry (and the HFA fix).** The same `build_feature_row` runs in
 > both paths, and `hfa` is read from the persisted `model_meta.json` rather than a
