@@ -30,6 +30,12 @@ the real one. With actual closing odds, the bracket collapses to a single number
 
 ---
 
+> **Further reading:** [RESEARCH_NOTES.md](RESEARCH_NOTES.md) — what Medallion,
+> the quant funds, market-makers, and pro betting syndicates (Benter, Starlizard)
+> imply for this pipeline. The two highest-evidence upgrades it surfaces — *market
+> price as a model feature* (Benter) and *CLV as the primary KPI* — map onto Tier 2
+> below.
+
 ## Tier 2 — To *have* an edge over a sharp book (the hard truth)
 
 A sharp book already prices everything our model knows — Elo, rest, back-to-backs,
