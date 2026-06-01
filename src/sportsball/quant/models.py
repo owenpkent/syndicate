@@ -21,6 +21,7 @@ from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
 
 from ..logging_conf import get_logger
+from . import calibration
 from . import features as feat
 from .features import TeamSnapshot, neutral_snapshot
 
@@ -174,7 +175,11 @@ class ModelBundle:
             home_availability=home_availability, away_availability=away_availability,
         )
         p = float(self.model.predict_proba([row])[0][1])
-        # Post-hoc calibration (T defaults to 1.0 / no-op for older artifacts).
+        # Post-hoc calibration: prefer the richer spec (temperature OR isotonic);
+        # fall back to the legacy scalar temperature for older artifacts.
+        spec = self.meta.get("calibration")
+        if spec:
+            return float(calibration.apply(p, spec))
         return feat.temperature_scale(p, float(self.meta.get("temperature", 1.0)))
 
     def predict_participant_prob(self, home_team, away_team, participant, *,

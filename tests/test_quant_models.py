@@ -122,6 +122,14 @@ class TestModelBundlePredict:
         warm = _bundle(snaps, _meta(temperature=2.5)).predict_home_prob("Home", "Away")
         assert 0.5 < warm < hot  # same model+inputs, T>1 is less confident
 
+    def test_calibration_spec_overrides_legacy_temperature(self):
+        # An isotonic spec mapping everything to 0.5 should flatten the output,
+        # proving the serve path routes through meta["calibration"].
+        snaps = {"Home": TeamSnapshot(elo=1750), "Away": TeamSnapshot(elo=1350)}
+        spec = {"method": "isotonic", "x": [0.0, 1.0], "y": [0.5, 0.5]}
+        p = _bundle(snaps, _meta(temperature=1.0, calibration=spec)).predict_home_prob("Home", "Away")
+        assert p == pytest.approx(0.5, abs=1e-6)
+
 
 class TestMonteCarlo:
     def test_strong_team_favored_and_probs_bounded(self):

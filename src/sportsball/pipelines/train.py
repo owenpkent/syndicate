@@ -14,9 +14,7 @@ import pickle
 from pathlib import Path
 
 import numpy as np
-from scipy.optimize import minimize_scalar
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import log_loss
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -24,6 +22,7 @@ from ..config import load_settings
 from ..db import Database
 from ..logging_conf import get_logger
 from ..matching import normalize_team
+from ..quant import calibration
 from ..quant import features as feat
 from ..store import Store
 from ._elo import fetch_history, walk_forward
@@ -76,29 +75,21 @@ def _availability_pit_map(store: Store) -> dict:
     return out
 
 
-def _fit_temperature(X, y, cal_frac: float = 0.1) -> float:
-    """Fit a confidence-scaling temperature on a held-out recent tail.
+def _fit_calibration(X, y, cal_frac: float = 0.1) -> dict:
+    """Fit a calibration spec on a held-out recent tail (auto: temperature vs isotonic).
 
-    Trains a probe model on the earlier games and minimizes log-loss of its
-    predictions on the most recent ``cal_frac`` (the slice closest to the serving
-    distribution). The final model is still fit on ALL data; only T is estimated
-    out-of-fold. Returns 1.0 (no-op) when there's too little data to be reliable.
+    Trains a probe model on the earlier games and calibrates against its predictions
+    on the most recent ``cal_frac`` (the slice closest to the serving distribution).
+    The final model is still fit on ALL data; only the calibrator is estimated
+    out-of-fold. Returns the ``identity`` spec when there's too little data.
     """
     cut = int(len(X) * (1 - cal_frac))
     if cut < 100 or len(X) - cut < 50:
-        return 1.0
+        return {"method": "identity"}
     probe = Pipeline([("scaler", StandardScaler()),
                       ("lr", LogisticRegression(max_iter=1000))]).fit(X[:cut], y[:cut])
-    p = np.clip(probe.predict_proba(X[cut:])[:, 1], 1e-6, 1 - 1e-6)
-    logit = np.log(p / (1 - p))
-    yc = y[cut:]
-
-    def nll(T):
-        pc = 1.0 / (1.0 + np.exp(-logit / T))
-        return log_loss(yc, pc, labels=[0, 1])
-
-    res = minimize_scalar(nll, bounds=(0.5, 5.0), method="bounded")
-    return float(res.x) if res.success else 1.0
+    p = probe.predict_proba(X[cut:])[:, 1]
+    return calibration.fit(p, y[cut:], method="auto")
 
 
 def run(db: Database) -> bool:
@@ -133,8 +124,9 @@ def run(db: Database) -> bool:
         ("lr", LogisticRegression(max_iter=1000)),
     ]).fit(X, y)
     log.info("In-sample accuracy: %.4f", model.score(X, y))
-    temperature = _fit_temperature(X, y)
-    log.info("Calibration temperature: %.3f (>1 corrects over-confidence)", temperature)
+    calib = _fit_calibration(X, y)
+    temperature = float(calib.get("temperature", 1.0))  # back-compat surface
+    log.info("Calibration: %s", calib.get("method"))
 
     MODEL_DIR.mkdir(exist_ok=True)
     (MODEL_DIR / "win_prob_model.pkl").write_bytes(pickle.dumps(model))
@@ -157,6 +149,7 @@ def run(db: Database) -> bool:
         "hfa": params["hfa"],
         "k_factor": params["k_factor"],
         "temperature": temperature,
+        "calibration": calib,
         "mov_enabled": strategy.elo_mov_enabled,
         "carry": strategy.elo_carry,
         "gap_days": strategy.elo_offseason_gap_days,
