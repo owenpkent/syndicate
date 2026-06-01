@@ -11,7 +11,7 @@ PIP=$(PYTHON) -m pip
         backtest backtest-viz optimize train retrain bootstrap ingest-nba backfill-signals \
         player-strength roster-pit ingest-injuries ingest-odds dryrun measure-algos \
         eval-duckdb measure-features model-quality backtest-sim shell backup restore \
-        ingest-team-advanced backfill-odds-history capture-odds
+        ingest-team-advanced backfill-odds-history capture-odds capture-quotes
 
 setup:
 	@echo "Setting up local virtual environment..."
@@ -172,3 +172,8 @@ backfill-odds-history:
 # free-tier friendly). Run near tip-off; idempotent. Needs ODDS_API_KEY.
 capture-odds:
 	@DB_HOST=localhost $(PYTHON) scripts/capture_daily_odds.py $(if $(MINCREDITS),--min-credits $(MINCREDITS),)
+
+# Capture per-book h2h+totals (LIVE, ~2 cr) -> DuckDB odds_quotes with open/close
+# phase, for the line-movement edge hunt. PHASE=open|close. Free-tier daily cron.
+capture-quotes:
+	@DB_HOST=localhost $(PYTHON) scripts/capture_odds_quotes.py --phase $(or $(PHASE),close)

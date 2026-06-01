@@ -49,7 +49,9 @@ def init_db(con: duckdb.DuckDBPyConnection) -> None:
             side        TEXT,      -- team name | 'Over' | 'Under'
             point       DOUBLE,    -- totals line / spread point; NULL for h2h
             price       DOUBLE,    -- decimal odds
-            PRIMARY KEY (event_id, market, bookmaker, side)
+            phase       TEXT DEFAULT 'close',  -- 'open'|'close'; this historical pull is near-tip 'close'
+            captured_at TIMESTAMP,
+            PRIMARY KEY (event_id, market, bookmaker, side, phase)
         );
         """
     )
@@ -101,8 +103,8 @@ def upsert(con: duckdb.DuckDBPyConnection, rows: list[tuple]) -> int:
     if not rows:
         return 0
     con.executemany(
-        "INSERT INTO odds_quotes (event_id, game_date, market, bookmaker, side, point, price) "
-        "VALUES (?,?,?,?,?,?,?) ON CONFLICT (event_id, market, bookmaker, side) "
+        "INSERT INTO odds_quotes (event_id, game_date, market, bookmaker, side, point, price, phase) "
+        "VALUES (?,?,?,?,?,?,?,'close') ON CONFLICT (event_id, market, bookmaker, side, phase) "
         "DO UPDATE SET point = excluded.point, price = excluded.price;", rows)
     return len(rows)
 

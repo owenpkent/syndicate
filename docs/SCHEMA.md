@@ -204,13 +204,18 @@ and found redundant with Elo — see `scripts/possession_experiment.py` — so i
 **not** a win-prob feature; the data is kept for totals.)
 
 ### `odds_quotes` — per-book h2h + totals (line-shopping / totals)
-Written by [`scripts/backfill_odds_markets_duckdb.py`](../scripts/backfill_odds_markets_duckdb.py)
-(The Odds API historical, one-time paid pull). **248,064 quotes, 4,887 games
-(2022-2026), 23 books**, keyed `(event_id, market, bookmaker, side)`:
-`market` (`h2h`/`totals`), `bookmaker`, `side` (team / `Over` / `Under`),
-`point` (totals line; NULL for h2h), `price` (decimal). Unlike
-`events.home_close` (the consensus *median*), this keeps **every book's** quote —
-the basis for line-shopping analysis (best-available vs close) and a totals model.
+Written by the one-time paid historical pull
+([`scripts/backfill_odds_markets_duckdb.py`](../scripts/backfill_odds_markets_duckdb.py),
+248k quotes, 4,887 games 2022-2026, 23 books) **and** the free ongoing capture
+([`scripts/capture_odds_quotes.py`](../scripts/capture_odds_quotes.py), `make
+capture-quotes PHASE=open|close`). Keyed `(event_id, market, bookmaker, side,
+phase)`: `market` (`h2h`/`totals`), `bookmaker`, `side` (team / `Over` / `Under`),
+`point` (totals line; NULL for h2h), `price` (decimal), **`phase`** (`open` = first
+sighting / `close` = latest near-tip), `captured_at`. Unlike `events.home_close`
+(the consensus *median*), this keeps **every book's** quote. Uses: line-shopping
+(best-available vs close), a totals model, and — via the `open`/`close` pair — the
+**line-movement edge hunt** (find openers that systematically misprice → CLV).
+The daily cron captures `open` (morning) + `close` (near tip) for free.
 
 ```bash
 make ingest-team-advanced                      # possession stats, 1996-97 .. current
