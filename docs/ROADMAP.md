@@ -123,7 +123,11 @@ than close, capturing a *fraction* of the full move. `make capture-quotes`
 (open/close, free daily cron) is the data hook; real-time chasing wants a few
 **intraday** snapshots too.
 
-**This edge is sport-agnostic** — it's market structure, not basketball. So it can
+**This edge is sport-agnostic — now validated on ~56k games across 4 sports**
+(`scripts/steam_validation.py`, free SBRO 10Y archives nba/mlb/nhl/nfl). Following
+the total's move at the open wins 53-60%+ with positive ROI in *every* sport (NBA,
+MLB, NHL, NFL) — confirming it's a market-structure law (the close is sharper than
+the open *everywhere*), not a basketball or data-artifact effect. So it can
 be deployed on whatever is *in season* (the Odds API `/sports` list shows MLB,
 WNBA, FIFA World Cup, NHL all active in June), rather than waiting for the NBA
 season. **WNBA** reuses the basketball model directly; **MLB** offers the most
@@ -140,8 +144,11 @@ exploitable structures:
    line movement (line moves against public %) is the canonical version.
 2. **Cross-sectional — book lead-lag.** Sharp books (Pinnacle, Circa) move first;
    recreational books follow minutes later. Beating the laggard to the number
-   captures the move with *certainty*, not prediction. Needs per-book timestamps —
-   exactly what `odds_quotes` now records. **The cleanest deployable edge.**
+   captures the move with *certainty*, not prediction. **The cleanest deployable
+   edge** — but it needs **intraday per-book time-series**, which no free archive
+   publishes (the SBRO archives are consensus open/close only). So it is gated on
+   the live capture building up *with intraday frequency* — the one thing that
+   would benefit from a cheap paid tier; cannot be shortcut with historical data.
 3. **Behavioral — public bias.** Recreational money over-backs favorites, overs,
    and popular teams; books shade lines accordingly, leaving the unpopular side a
    hair cheap. Fade the bettors, not the teams.
