@@ -78,6 +78,11 @@ if [[ -d models ]]; then
 fi
 [[ -f optimized_params.json ]] && cp optimized_params.json "${DEST}/optimized_params.json"
 
+# --- Portable closing-odds export (paid Odds API data; re-loadable insurance) ---
+for f in data/closing_odds_*.json; do
+  [[ -e "$f" ]] && { echo ">> Copying $(basename "$f") (paid odds export)..."; cp "$f" "${DEST}/"; }
+done
+
 # --- Manifest ---
 {
   echo "created_utc=${STAMP}"
