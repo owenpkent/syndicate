@@ -209,9 +209,11 @@ Written by the one-time paid historical pull
 248k quotes, 4,887 games 2022-2026, 23 books) **and** the free ongoing capture
 ([`scripts/capture_odds_quotes.py`](../scripts/capture_odds_quotes.py), `make
 capture-quotes PHASE=open|close`). Keyed `(event_id, market, bookmaker, side,
-phase)`: `market` (`h2h`/`totals`), `bookmaker`, `side` (team / `Over` / `Under`),
-`point` (totals line; NULL for h2h), `price` (decimal), **`phase`** (`open` = first
-sighting / `close` = latest near-tip), `captured_at`. Unlike `events.home_close`
+phase)`: `market` (`h2h`/`totals`), `bookmaker`, `side` (team / `Over` / `Under` /
+`Draw`), `point` (totals line; NULL for h2h), `price` (decimal), **`phase`**
+(`open` = first sighting / `close` = latest near-tip), `captured_at`, **`sport`**
+(`nba`/`mlb`/`wnba`/`wc`/… — steam is sport-agnostic, so the live capture runs on
+whatever is in season; only `nba` joins our events table). Unlike `events.home_close`
 (the consensus *median*), this keeps **every book's** quote. Uses: line-shopping
 (best-available vs close), a totals model, and — via the `open`/`close` pair — the
 **line-movement edge hunt** (find openers that systematically misprice → CLV).

@@ -176,4 +176,4 @@ capture-odds:
 # Capture per-book h2h+totals (LIVE, ~2 cr) -> DuckDB odds_quotes with open/close
 # phase, for the line-movement edge hunt. PHASE=open|close. Free-tier daily cron.
 capture-quotes:
-	@DB_HOST=localhost $(PYTHON) scripts/capture_odds_quotes.py --phase $(or $(PHASE),close)
+	@DB_HOST=localhost $(PYTHON) scripts/capture_odds_quotes.py --phase $(or $(PHASE),close) --sport-key $(or $(SPORT),basketball_nba)

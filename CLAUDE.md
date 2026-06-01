@@ -36,7 +36,7 @@ make ingest-odds              # real closing odds -> events.home/away_close (FIL
 sportsball-sbro-to-feed       # convert SBRO export/mirror archive -> ingest-odds feed JSON
 make backfill-odds-history    # Odds API HISTORICAL snapshots -> events (recent closing lines; ~10cr/game-day)
 make capture-odds             # Odds API LIVE snapshot -> today's events (~1cr; free-tier, daily cron)
-make capture-quotes PHASE=open|close  # per-book h2h+totals -> DuckDB odds_quotes (line-movement hunt)
+make capture-quotes PHASE=open|close SPORT=baseball_mlb  # per-book h2h+totals -> odds_quotes (any sport; line-movement hunt)
 make ingest-team-advanced     # nba_api possession stats (off/def/net rating, pace, PIE) -> DuckDB
 make clv                      # Closing Line Value — the primary edge KPI (needs odds + signals)
 make measure-features         # holdout feature ablation; model-quality = calibration + sweep
