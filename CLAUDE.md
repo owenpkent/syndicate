@@ -32,7 +32,8 @@ make backfill-signals         # persist model predictions as signals (recent win
 make eval-duckdb              # out-of-sample walk-forward holdout vs DuckDB (no Postgres)
 make roster-pit               # point-in-time roster strength -> team_strength_pit
 make ingest-injuries          # point-in-time roster availability -> team_availability_pit
-make ingest-odds              # real closing odds -> events.home/away_close (FILE= or ODDS_API_KEY)
+make ingest-odds              # real closing odds -> events.home/away_close (FILE= or ODDS_API_KEY; --duckdb for offline)
+sportsball-sbro-to-feed       # convert SBRO export/mirror archive -> ingest-odds feed JSON
 make measure-features         # holdout feature ablation; model-quality = calibration + sweep
 make backtest-sim             # walk-forward betting backtest (ROI/win%/drawdown vs synthetic market+vig)
 
@@ -167,7 +168,14 @@ odds feed; once availability data lands a retrain activates it. The v4 addition 
 wins (Benter's lever: the market line as a *model input*, not just the EV
 benchmark). Training de-vigs `events.home_close/away_close` (`make ingest-odds`);
 the Engine de-vigs the best two-sided price from the arbitrage book at serve.
-Inert (neutral 0) until closing odds are loaded. Post-hoc calibration is now
+Real closing odds are now **loaded and measured**: the SBRO mirror archive
+(2011-2022) is converted by `sportsball-sbro-to-feed`, ingested with a vig
+data-quality guard (`ingest_odds.passes_vig_guard`), and applied to 12,505 games
+in the DuckDB (`make ingest-odds FILE=... --duckdb data/sportsball.duckdb`).
+`scripts/train_eval_duckdb.py` shows `market_logit` carries real out-of-sample
+lift (lined-game log-loss 0.6506 -> 0.6462). It still falls back to neutral 0
+where no line exists; the *served* model activates it after a Postgres retrain.
+Post-hoc calibration is now
 **auto-selected** (temperature *or* isotonic, whichever generalizes; persisted as
 `model_meta.calibration`), and the Engine **shrinks the Kelly stake by the
 model's calibration-confidence** (`strategy.uncertainty_scaling`). The served model

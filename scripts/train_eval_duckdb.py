@@ -33,8 +33,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from sportsball.pipelines._elo import walk_forward  # noqa: E402
+from sportsball.pipelines._elo import _coerce_date, walk_forward  # noqa: E402
+from sportsball.matching import normalize_team  # noqa: E402
 from sportsball.quant import features as feat  # noqa: E402
+from sportsball.quant.odds import devig_two_way  # noqa: E402
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "sportsball.duckdb"
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -47,12 +49,29 @@ def load_events(db_path: str) -> list[tuple]:
     con = duckdb.connect(db_path, read_only=True)
     rows = con.execute(
         """
-        SELECT event_date, home_team, away_team, home_score, away_score
+        SELECT event_date, home_team, away_team, home_score, away_score,
+               home_close, away_close
         FROM events WHERE home_score IS NOT NULL ORDER BY event_date ASC
         """
     ).fetchall()
     con.close()
     return rows
+
+
+def build_market_pit(rows: list[tuple]) -> dict:
+    """``{(home_norm, away_norm, date_iso): no_vig_home_prob}`` from closing odds.
+
+    Keyed exactly as ``walk_forward.market_for`` expects. Games without a usable
+    two-sided close are simply absent, so the market feature stays neutral (0)
+    there — the same "inert when missing" contract as in production.
+    """
+    pit: dict = {}
+    for i, (raw_date, home, away, _hs, _as, hc, ac) in enumerate(rows):
+        p = devig_two_way(hc, ac) if (hc and ac) else None
+        if p is not None:
+            key = (normalize_team(home), normalize_team(away), _coerce_date(raw_date, i).isoformat())
+            pit[key] = p
+    return pit
 
 
 def _pipeline() -> Pipeline:
@@ -108,25 +127,40 @@ def main() -> None:
         print(f"DuckDB {args.db} not found — run ingest_nba_duckdb.py first.")
         return
     rows_raw = load_events(args.db)
-    print(f"Loaded {len(rows_raw)} FINAL games from {args.db}")
+    market_pit = build_market_pit(rows_raw)
+    print(f"Loaded {len(rows_raw)} FINAL games from {args.db} "
+          f"({len(market_pit)} with closing odds -> market feature)")
 
-    frows, snapshots = walk_forward(rows_raw, K, HFA, mov_enabled=True,
-                                    carry=0.75, gap_days=90, form_window=10)
+    results = [(d, h, a, hs, as_) for (d, h, a, hs, as_, _hc, _ac) in rows_raw]
+    frows, snapshots = walk_forward(results, K, HFA, mov_enabled=True,
+                                    carry=0.75, gap_days=90, form_window=10,
+                                    market_pit=market_pit)
     X = np.array([r.features for r in frows])
     y = np.array([1 if r.actual >= 1.0 else 0 for r in frows])
 
     base_rate = float(y[int(len(y) * args.split):].mean())
+    mkt = feat.FEATURE_ORDER.index("market_logit")
+    no_market = [c for c in range(feat.N_FEATURES) if c != mkt]
     v1 = holdout_metrics(X, y, cols=[0], split=args.split)               # Elo-only
-    v2 = holdout_metrics(X, y, cols=list(range(feat.N_FEATURES)), split=args.split)  # full
+    v_nomkt = holdout_metrics(X, y, cols=no_market, split=args.split)    # all but market
+    v_full = holdout_metrics(X, y, cols=list(range(feat.N_FEATURES)), split=args.split)
 
-    print("\nChronological holdout (fit earlier games, score later) "
-          f"— test n={v2['n_test']}, home-win base rate {base_rate:.3f}")
-    print(f"{'model':<22}{'brier':>10}{'log_loss':>12}{'accuracy':>12}")
-    for name, m in (("v1 Elo-only (1 feat)", v1), (f"full ({feat.N_FEATURES} feat)", v2)):
-        print(f"{name:<22}{m['brier']:>10.4f}{m['log_loss']:>12.4f}{m['accuracy']:>12.4f}")
-    better = "v2 ✓" if v2["log_loss"] < v1["log_loss"] else "v1 (v2 regressed!)"
-    print(f"\nLower log-loss is better → {better}")
-    print("(net_rating/player_strength are 0 here — no team_advanced_stats in DuckDB; "
+    # How many *test-window* games actually carry the market signal — the lift is
+    # only meaningful where the feature is live.
+    cut = int(len(X) * args.split)
+    live = int(np.count_nonzero(X[cut:, mkt]))
+    print("\nChronological holdout (fit earlier games, score later). "
+          f"test n={v_full['n_test']}, home-win base rate {base_rate:.3f}, "
+          f"{live} test games with a live market line")
+    print(f"{'model':<26}{'brier':>10}{'log_loss':>12}{'accuracy':>12}")
+    for name, m in (("v1 Elo-only (1 feat)", v1),
+                    (f"no-market ({len(no_market)} feat)", v_nomkt),
+                    (f"+market ({feat.N_FEATURES} feat)", v_full)):
+        print(f"{name:<26}{m['brier']:>10.4f}{m['log_loss']:>12.4f}{m['accuracy']:>12.4f}")
+    dll = v_nomkt["log_loss"] - v_full["log_loss"]
+    print(f"\nLower log-loss is better. market_logit lift over no-market: "
+          f"{dll:+.4f} log-loss ({'helps' if dll > 0 else 'no gain'}).")
+    print("(net_rating/player_strength are 0 here: no team_advanced_stats in DuckDB; "
           "populate via Postgres + make fetch-stats/player-strength to activate them.)")
 
     if args.write:

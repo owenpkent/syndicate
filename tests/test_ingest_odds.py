@@ -3,10 +3,13 @@ import pytest
 
 from sportsball.matching import canonical_event_id
 from sportsball.pipelines.ingest_odds import (
+    VIG_MAX,
+    VIG_MIN,
     _to_decimal,
     apply_closing_odds,
     parse_file_feed,
     parse_odds_api,
+    passes_vig_guard,
 )
 from sportsball.store import Store
 
@@ -55,6 +58,34 @@ class TestParseFileFeed:
         ])
         assert rows == []
 
+    def test_implausible_vig_rejected(self):
+        # Two near-evens both ~2.0 imply a ~1.0 overround (a mis-pair / arb), and
+        # two short favorites (1.5/1.5 -> 1.33) imply impossible juice. Both drop.
+        rows = parse_file_feed([
+            {"sport": "nba", "date": "2024-01-15", "home_team": "Celtics",
+             "away_team": "Lakers", "home_close": 2.0, "away_close": 2.0},
+            {"sport": "nba", "date": "2024-01-16", "home_team": "Heat",
+             "away_team": "Bulls", "home_close": 1.5, "away_close": 1.5},
+        ])
+        assert rows == []
+
+
+class TestVigGuard:
+    def test_typical_juice_passes(self):
+        assert passes_vig_guard(1.91, 1.91)        # -110/-110, overround ~1.048
+        assert passes_vig_guard(1.6667, 2.30)      # -150/+130, ~1.035
+
+    def test_arb_and_overjuice_rejected(self):
+        assert not passes_vig_guard(2.05, 2.05)    # ~0.976: below 1.0, mis-paired
+        assert not passes_vig_guard(1.5, 1.5)      # ~1.333: impossible vig
+
+    def test_just_inside_and_outside_band(self):
+        # A hair inside each bound passes; a hair outside fails.
+        assert VIG_MIN < 1.02 < VIG_MAX           # sanity: real juice lives inside
+        assert passes_vig_guard(2 / 1.05, 2 / 1.05)   # sum ~1.05, mid-band
+        assert not passes_vig_guard(2 / 1.005, 2 / 1.005)  # sum ~1.005, below floor
+        assert not passes_vig_guard(2 / 1.15, 2 / 1.15)    # sum ~1.15, above ceiling
+
 
 class TestParseOddsApi:
     def test_median_across_books(self):
@@ -90,3 +121,26 @@ def test_apply_closing_odds_issues_updates():
     assert n == 1
     sql = " ".join(s for s, _ in store.db.executed)
     assert "UPDATE events SET home_close" in sql
+
+
+def test_apply_closing_odds_duckdb_only_touches_known_events(tmp_path):
+    duckdb = pytest.importorskip("duckdb")
+    from sportsball.pipelines.ingest_odds import apply_closing_odds_duckdb
+
+    db = tmp_path / "t.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute("CREATE TABLE events (event_id VARCHAR, home_close DOUBLE, away_close DOUBLE)")
+    con.execute("INSERT INTO events VALUES ('nba_20240115_lakers_at_celtics', NULL, NULL)")
+    con.close()
+
+    matched, total = apply_closing_odds_duckdb(str(db), [
+        ("nba_20240115_lakers_at_celtics", 1.80, 2.10),   # known -> updated
+        ("nba_20240115_heat_at_bulls", 1.95, 1.95),       # unknown -> skipped
+    ])
+    assert (matched, total) == (1, 2)
+
+    con = duckdb.connect(str(db), read_only=True)
+    row = con.execute("SELECT home_close, away_close FROM events "
+                      "WHERE event_id = 'nba_20240115_lakers_at_celtics'").fetchone()
+    con.close()
+    assert row == (1.80, 2.10)

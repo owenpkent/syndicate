@@ -191,10 +191,18 @@ logistic weight it alongside Elo/rest/form.
 
 **Caveat (the "echo the market" risk):** if the model is trained on, and bet
 against, the *same* line, it just learns to reproduce the market and finds ~no edge
-— which is honest, not a bug. The value is training on the **closing** line while
+(which is honest, not a bug). The value is training on the **closing** line while
 betting an earlier/better price (capturing the move), and benchmarking edge as CLV
-vs. a sharp close — see [ROADMAP Tier 2.4](ROADMAP.md) and issue #1. Inert (0) until
-closing odds are loaded.
+vs. a sharp close. See [ROADMAP Tier 2.4](ROADMAP.md) and issue #1.
+
+**Now loaded and measured (not inert).** Real closing odds (the SBRO mirror,
+2011-2022, 12,505 games) are ingested into the DuckDB `events`, and
+`scripts/train_eval_duckdb.py` builds the feature and reports its out-of-sample
+lift: on lined holdout games log-loss 0.6506 → 0.6462 (+0.0044) and accuracy 0.6245
+→ 0.6361; blended over all test games (only ~32% carry a line) it is +0.0020. The
+feature still falls back to neutral 0 wherever a line is absent, so the "inert when
+missing" contract holds. The *served* model activates `market_logit` once a Postgres
+retrain runs (`make ingest-odds` → `make retrain`); shipped artifacts are still v2.
 
 > **Train/serve symmetry (and the HFA fix).** The same `build_feature_row` runs in
 > both paths, and `hfa` is read from the persisted `model_meta.json` rather than a
