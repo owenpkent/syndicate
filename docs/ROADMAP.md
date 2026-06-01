@@ -172,6 +172,16 @@ game-modeling was *zero*. Next: scale the sample on the live multi-sport capture
 and build **lead-lag** detection (structure #2) from intraday per-book snapshots —
 the genuine, deployable research direction.
 
+**Backtest reality check (`scripts/backtest_steam.py`):** with realistic execution
+the naive steam edge dies. Modelling the capture fraction φ (entry = `close −
+φ·(close−open)`; chasing mid-move ⇒ φ ≈ 0.3–0.6), the +10–23% hindsight ROI
+collapses to **NBA −11%, MLB −2%, NFL −15% at φ=0.6** (only NHL clings to +2.7%,
+not significant). The entire edge sits in the half-points right at the open, which
+**you cannot get by chasing** — the −110 vig eats you once the line has moved. So
+the *only* way to win is to **legitimately obtain the opening number**: predict the
+move (predict-the-close) or lead-lag a lagging book. This is why those two — not
+steam-chasing — are the real targets.
+
 ---
 
 ## Tier 3 — To *run* it live for real (operational)
