@@ -61,6 +61,26 @@ class TestValueSignal:
         assert any("INSERT INTO signals" in s for s, _ in store.db.executed)
 
 
+class TestUncertaintyAwareKelly:
+    def test_less_certain_model_stakes_less(self):
+        # Same edge/odds; a model whose calibrator tempers it harder should size
+        # smaller than a confident (no-calibration) one.
+        confident = FakeBundle(0.6, meta={})
+        uncertain = FakeBundle(0.6, meta={"calibration": {"method": "temperature", "temperature": 3.0}})
+        b1, _ = _run(_signal(odds=2.0), bundle=confident)
+        b2, _ = _run(_signal(odds=2.0), bundle=uncertain)
+        f_conf = b1.pushed[EXECUTION_SIGNALS][0]["fraction"]
+        f_unc = b2.pushed[EXECUTION_SIGNALS][0]["fraction"]
+        assert 0 < f_unc < f_conf
+
+    def test_scaling_off_ignores_calibration(self):
+        strat = StrategyConfig(safety_buffer_ev=0.02, kelly_multiplier=0.25,
+                               require_model=True, uncertainty_scaling=False)
+        uncertain = FakeBundle(0.6, meta={"calibration": {"method": "temperature", "temperature": 3.0}})
+        b, _ = _run(_signal(odds=2.0), bundle=uncertain, strat=strat)
+        assert b.pushed[EXECUTION_SIGNALS][0]["fraction"] == pytest.approx(0.05)
+
+
 class TestLineShopping:
     def test_bets_best_available_number_across_venues(self):
         # Same game/side quoted by two books; the Engine should price and emit

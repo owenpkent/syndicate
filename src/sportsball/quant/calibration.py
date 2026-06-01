@@ -69,6 +69,23 @@ def apply(p, spec: dict | None):
     return p
 
 
+def confidence(spec: dict | None, *, ref: float = 0.8, floor: float = 0.25) -> float:
+    """Stake-shrink factor in ``[floor, 1]`` from how much the calibrator tempers a
+    confident prediction.
+
+    Measures the share of a ``ref`` (e.g. 0.8) prediction's edge over 0.5 that the
+    calibrator keeps: ``(apply(ref) - 0.5) / (ref - 0.5)``. A well-calibrated model
+    keeps ~all of it (→ 1.0, full stake); a heavily over-confident one that the
+    calibrator shrinks keeps less (→ smaller, stake less). This is the
+    research-backed "size down when the estimate is noisy" lever, derived uniformly
+    from any spec (temperature or isotonic). ``identity``/``None`` → 1.0.
+    """
+    if not spec or spec.get("method") in (None, "identity"):
+        return 1.0
+    kept = (float(apply(ref, spec)) - 0.5) / (ref - 0.5)
+    return float(max(floor, min(1.0, kept)))
+
+
 def fit(p, y, *, method: str = "auto", min_n: int = 100) -> dict:
     """Fit a calibrator on (p, y) and return a JSON-serializable spec.
 

@@ -41,6 +41,24 @@ class TestApply:
         assert out.shape == (2,) and out[0] < 0.5 < out[1]
 
 
+class TestConfidence:
+    def test_identity_is_full_stake(self):
+        assert cal.confidence(None) == 1.0
+        assert cal.confidence({"method": "identity"}) == 1.0
+
+    def test_temperature_one_is_full(self):
+        assert cal.confidence({"method": "temperature", "temperature": 1.0}) == pytest.approx(1.0)
+
+    def test_higher_temperature_shrinks(self):
+        c2 = cal.confidence({"method": "temperature", "temperature": 2.0})
+        c4 = cal.confidence({"method": "temperature", "temperature": 4.0})
+        assert c4 < c2 < 1.0
+
+    def test_floor_is_respected(self):
+        flat = {"method": "isotonic", "x": [0.0, 1.0], "y": [0.5, 0.5]}  # tempers everything
+        assert cal.confidence(flat, floor=0.25) == pytest.approx(0.25)
+
+
 class TestFit:
     def test_too_little_data_is_identity(self):
         assert cal.fit([0.6] * 10, [1] * 10)["method"] == "identity"

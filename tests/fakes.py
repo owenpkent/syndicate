@@ -154,10 +154,14 @@ class FakeDB:
 
 
 class FakeBundle:
-    """Returns a fixed participant probability regardless of inputs."""
+    """Returns a fixed participant probability regardless of inputs.
 
-    def __init__(self, prob):
+    ``meta`` mirrors a real ModelBundle's metadata (e.g. a ``calibration`` spec) so
+    tests can exercise uncertainty-aware sizing; defaults to empty (full stake)."""
+
+    def __init__(self, prob, meta=None):
         self.prob = prob
+        self.meta = meta or {}
 
     def predict_participant_prob(self, home_team, away_team, participant, **stats):
         return self.prob

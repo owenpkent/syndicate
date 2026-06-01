@@ -24,6 +24,7 @@ from ..config import Settings, load_settings
 from ..db import Database
 from ..logging_conf import get_logger
 from ..matching import normalize_team, parse_event_date
+from ..quant import calibration
 from ..quant.arbitrage import ArbitrageEngine
 from ..quant.models import ModelBundle, TeamStat
 from ..quant.odds import calculate_ev, calculate_kelly_fraction
@@ -171,7 +172,12 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
         log.info("[REJECT] %s | EV %.4f below buffer", market_id, ev)
         return
 
-    fraction = calculate_kelly_fraction(ev, odds, strategy.kelly_multiplier)
+    # Uncertainty-aware sizing: shrink the Kelly fraction by the model's
+    # calibration-confidence, so a less-certain (more-tempered) model stakes less.
+    meta = getattr(bundle, "meta", None) or {}
+    conf = calibration.confidence(meta.get("calibration")) if strategy.uncertainty_scaling else 1.0
+    mult = strategy.kelly_multiplier * conf
+    fraction = calculate_kelly_fraction(ev, odds, mult)
     # Risk-key on the venue we'll actually book at (the shopped market_id), so the
     # exposure check matches the exposure the Sniper sets.
     sized = PortfolioRiskManager(strategy).evaluate_risk(exec_market_id, fraction, broker.active_trades())
@@ -184,6 +190,7 @@ def process_signal(data: dict, *, bundle, store, broker, arb, strategy, gate=Non
         "market_id": exec_market_id, "event_id": event_id or parse_market_id(market_id)[1],
         "side": side, "home_team": home, "away_team": away,
         "source": exec_source, "ev": ev, "fraction": sized, "odds": odds,
+        "kelly_mult": round(mult, 4),
     }
     # Human-in-the-loop: high-EV signals are *suggested* in Slack and only reach
     # the Sniper on Approve. With no gate (default) behavior is unchanged.

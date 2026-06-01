@@ -56,6 +56,9 @@ class StrategyConfig:
 
     safety_buffer_ev: float = 0.02
     kelly_multiplier: float = 0.25
+    # Shrink the Kelly stake by the model's calibration-confidence (less certain
+    # model -> smaller stake). On by default; set false for plain fractional Kelly.
+    uncertainty_scaling: bool = True
     default_slippage: float = 0.005
     max_global_exposure_pct: float = 0.15
     correlation_penalty_multiplier: float = 0.5
