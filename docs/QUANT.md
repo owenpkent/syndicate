@@ -122,6 +122,16 @@ $$P_{\text{true}} = \sigma\!\Big(\beta_0 + \sum_j \beta_j\, z_j\Big),\qquad z_j 
 For the side named by the market, `predict_participant_prob` returns $P_{\text{true}}$
 for the home side or $1 - P_{\text{true}}$ for the away side.
 
+**Ensemble (default).** Serving is by default a 50/50 blend of this logistic and a
+gradient-boosted tree (`HistGradientBoostingClassifier`) over the same features —
+"ensemble many decorrelated signals" ([RESEARCH_NOTES](RESEARCH_NOTES.md)): the
+linear model is well-calibrated, the tree captures interactions, and they err
+differently. `quant/models.EnsembleModel` averages their `predict_proba`, exposes
+the sklearn API, and pickles transparently into the bundle — same 9-feature
+contract, **no schema change**. Toggle with `strategy.model_ensemble`; the GBM is
+best-effort (a failure falls back to the logistic alone). The calibrator is fit on
+the *same* construction used to serve, so calibration matches the ensemble.
+
 ### 2.5 Player-derived roster strength (Moneyball)
 
 The `player_strength_diff` feature is a **point-in-time** roster strength from the

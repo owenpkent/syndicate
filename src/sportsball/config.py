@@ -59,6 +59,9 @@ class StrategyConfig:
     # Shrink the Kelly stake by the model's calibration-confidence (less certain
     # model -> smaller stake). On by default; set false for plain fractional Kelly.
     uncertainty_scaling: bool = True
+    # Blend the logistic with a gradient-boosted tree (ensemble) at train time.
+    # On by default; set false to serve the logistic alone.
+    model_ensemble: bool = True
     default_slippage: float = 0.005
     max_global_exposure_pct: float = 0.15
     correlation_penalty_multiplier: float = 0.5

@@ -12,11 +12,50 @@ from sklearn.preprocessing import StandardScaler
 from sportsball.quant import features as feat
 from sportsball.quant.features import TeamSnapshot
 from sportsball.quant.models import (
+    EnsembleModel,
     LogisticWinProbability,
     ModelBundle,
     MonteCarloPricer,
     TeamStat,
 )
+
+
+class _Stub:
+    """Constant-probability estimator for ensemble-weighting tests."""
+    def __init__(self, p):
+        self.p = p
+
+    def predict_proba(self, X):
+        return np.tile([1 - self.p, self.p], (len(X), 1))
+
+
+class TestEnsemble:
+    def test_equal_weight_is_mean(self):
+        e = EnsembleModel([(_Stub(0.8), 1), (_Stub(0.4), 1)])
+        p = e.predict_proba([[0], [0]])
+        assert p.shape == (2, 2)
+        assert p[0, 1] == pytest.approx(0.6)
+
+    def test_weighting(self):
+        e = EnsembleModel([(_Stub(0.9), 3), (_Stub(0.5), 1)])
+        assert e.predict_proba([[0]])[0, 1] == pytest.approx((0.9 * 3 + 0.5) / 4)
+
+    def test_score(self):
+        assert EnsembleModel([(_Stub(0.8), 1)]).score([[0], [0]], [1, 0]) == pytest.approx(0.5)
+
+    def test_serves_and_pickles_with_real_estimators(self):
+        a, b = _trained_pipeline(), _trained_pipeline()
+        e = EnsembleModel([(a, 0.5), (b, 0.5)])
+        assert e.predict_proba([[0] * feat.N_FEATURES]).shape == (1, 2)
+        e2 = pickle.loads(pickle.dumps(e))
+        assert e2.predict_proba([[0] * feat.N_FEATURES]).shape == (1, 2)
+
+    def test_bundle_serves_an_ensemble(self):
+        e = EnsembleModel([(_trained_pipeline(), 0.5), (_trained_pipeline(), 0.5)])
+        bundle = ModelBundle(model=e, snapshots={"Home": TeamSnapshot(elo=1700),
+                                                 "Away": TeamSnapshot(elo=1400)}, meta=_meta())
+        p = bundle.predict_home_prob("Home", "Away")
+        assert 0.0 <= p <= 1.0 and p > 0.5
 
 HFA = 50.0
 

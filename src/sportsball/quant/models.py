@@ -90,6 +90,36 @@ class MonteCarloPricer:
         }
 
 
+class EnsembleModel:
+    """A weighted average of fitted probability models over the same features.
+
+    "Ensemble many weak, decorrelated signals" is the recurring lesson from the
+    quant funds ([RESEARCH_NOTES](../../docs/RESEARCH_NOTES.md)). Here it blends the
+    standardizing logistic (linear, well-calibrated) with a gradient-boosted tree
+    (captures interactions/non-linearity) — two learners that err differently.
+
+    Exposes just enough of the sklearn estimator API (``predict_proba``/``score``)
+    that :class:`ModelBundle` and the trainer treat it like any other model, so the
+    serve path and the persisted artifact are unchanged (no schema bump).
+    """
+
+    def __init__(self, members):
+        # members: list of (fitted_estimator, weight)
+        self.members = [(est, float(w)) for est, w in members]
+
+    def predict_proba(self, X):
+        total = sum(w for _, w in self.members) or 1.0
+        out = None
+        for est, w in self.members:
+            p = np.asarray(est.predict_proba(X), dtype=float) * (w / total)
+            out = p if out is None else out + p
+        return out
+
+    def score(self, X, y) -> float:
+        preds = (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+        return float((preds == np.asarray(y)).mean())
+
+
 @dataclass
 class TeamStat:
     net_rating: float
