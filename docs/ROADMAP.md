@@ -162,15 +162,19 @@ All of these are **CLV-generating machines**: you systematically obtain a price
 the market later moves past. CLV — not P&L — is the scorecard (significant in tens
 of bets, not thousands).
 
-**First measured result (`scripts/predict_close_experiment.py`, totals 2011-2022):**
-predicting the *game* gave OOS R² ≈ 0, but predicting the **line's move**
-(close−open) from open-time pace/efficiency gives **OOS R² = +0.016 (corr +0.13)** —
-positive, because the opener under-prices current-season pace that the close later
-adds. Betting the opener when our predicted-close diverges >1pt: 61% win, +17% ROI,
-**CLV +2.4 pts** (n=83, thin but directional). The edge is *small and real* where
-game-modeling was *zero*. Next: scale the sample on the live multi-sport capture,
-and build **lead-lag** detection (structure #2) from intraday per-book snapshots —
-the genuine, deployable research direction.
+**Predict-the-close — tested at scale, does NOT hold up.** The initial NBA totals
+hint looked positive (`scripts/predict_close_experiment.py`: move-prediction OOS
+R² +0.016, a thin 83-bet +17% slice). But scaling it across all 4 sports with
+recent-form features (`scripts/backtest_predict_close.py`, ~56k games, betting the
+*open* = deployable) **fails**: predicting the move has positive R² in 3/4 sports
+(NBA +0.027, NHL +0.069, NFL +0.067) yet it does **not** translate to profit — NHL
+*loses* despite the best R², NFL −19%, NBA +3.6% on a non-significant 201 bets, and
+MLB's "+14%" is a mirage (CLV ≈ 0, overfit). The predictable part of the move
+(recent form) is **not** the outcome-informative part (sharp money / injuries we
+can't see). So predict-the-close from public features is **not a reliable edge.**
+That leaves **lead-lag** (structure #2) as the only untested hope — and it
+genuinely needs intraday per-book data (the live `odds_snapshots` capture, or a
+~$30 paid historical pull); it cannot be tested with free archives.
 
 **Backtest reality check (`scripts/backtest_steam.py`):** with realistic execution
 the naive steam edge dies. Modelling the capture fraction φ (entry = `close −
