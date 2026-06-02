@@ -30,8 +30,11 @@ honing **time-series / probabilistic prediction**, judged by accuracy & calibrat
   calibration. `research/kalshi/` adds authenticated Kalshi access (secrets gitignored).
 - **`notebooks/`** (`[notebook]` extra): 01–11, each dark-themed and **auto-rendered
   daily to an HTML dashboard** (`make render` / `scripts/render_notebooks.py`, cron 04:30).
+- **Arb scanner** (`research/arb/scan.py`): riskless candidates (sportsbook cross-book,
+  Polymarket neg-risk CLOB-verified, CEX↔CEX spot) + crypto **funding carry**. Monitor only.
 - **Headline finding** (`market-efficiency-survey` memory): liquidity = efficiency; every
-  tradeable market is efficient, edge only lives in untradeable-thin or infra-gated spots.
+  tradeable market is efficient. The one real, capturable edge is **crypto funding carry**
+  (delta-neutral; e.g. XMR ~+41%/yr persistent) — not riskless, costs matter (`notebooks/12`–`13`).
 
 Per-sport DuckDB stores (`data/{mlb,nhl,wc,defi}.duckdb`) are all in `make backup`. The
 sports betting system below remains intact and documented but is no longer the focus.

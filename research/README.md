@@ -16,6 +16,7 @@ Findings are condensed into the `edge-research` memory and `docs/ROADMAP.md`.
 | `nhl/` | **NHL** (free NHL web API) | Hockey win-prob: binary Elo on 18k games. ~56%; ceiling = starting goalie. See `nhl/README.md`. |
 | `wc/` | **World Cup / soccer** (free intl-results CSV) | 3-class (W/D/L) Elo on 49k internationals; ~51% on World-Cup holdout; predicts 2026. See `wc/README.md`. |
 | `kalshi/` | **Kalshi** (regulated prediction market) | Authenticated API access (RSA signing). Data access poor for research; kept as infra. See `kalshi/README.md`. |
+| `arb/` | **Arbitrage scanner** (sportsbook, Polymarket, crypto) | `scan.py` flags riskless candidates (cross-book, Polymarket neg-risk, CEX↔CEX spot) — CLOB-verified, fillability-filtered — plus crypto **funding carry**. Monitor, never trades. See `arb/README.md`. |
 
 Visualizations for all of the above live in `../notebooks/` (auto-rendered daily to a
 dark HTML dashboard). Cross-market findings are condensed into the `market-efficiency-survey`,
@@ -29,6 +30,12 @@ dislocation, ~$0 volume) or needs infrastructure rather than a model (CEX↔DEX 
 cross-venue matching). The prediction *craft* pays on **un-priced signal** — sports
 *outcomes* (NBA 66% / MLB·NHL ~56% / WC ~51% 3-way), crypto *volatility* (R²≈0.42) — not
 on beating liquid market *prices* (sharp closing lines, BTC direction, calibrated Polymarket).
+
+**The one real, capturable edge surfaced: crypto funding carry** (`arb/scan.py`,
+`notebooks/12_funding_carry`). Hyperliquid perps run persistent annualized funding a
+delta-neutral hold collects (e.g. XMR ~+41%/yr at 0.98 sign-stability). It is NOT riskless
+(basis, funding-flip, spot-borrow, fees, thin-alt capacity) and the headline rates are
+often spikes — rank by mean × sign-stability, then **net of costs** (`notebooks/13`).
 
 ## Context — the pivot to DeFi time-series
 The real goal is honing **time-series prediction**, target domain **decentralized
