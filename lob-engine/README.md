@@ -38,9 +38,25 @@ Street uses.
 
 ```bash
 cargo build --workspace
-cargo test  --workspace                       # tape codec tests
-cargo run -p collector -- --coins BTC,ETH --secs 10 --out /tmp/probe.tape
+cargo test  --workspace                                  # tape codec + book tests
+cargo run -p collector -- --coins BTC,ETH,SOL --secs 10 --out /tmp/probe.tape
+cargo run -p tape --example dump -- /tmp/probe.tape       # inspect a captured tape
 ```
+
+## Measured (v1 data spine)
+
+Live Hyperliquid capture, BTC/ETH/SOL, `l2Book` + `trades`:
+
+| Metric | Value |
+|---|---|
+| Throughput | ~42 events/s (18.5 KiB/s) on 3 symbols |
+| Tape round-trip | ✅ 298 events (54 books, 244 trades) decoded, best bid/ask intact |
+| Codec | 0 allocations beyond the single frame buffer |
+
+The current ingest-latency line is a coarse proxy (`local_recv − venue_event_time`),
+inflated by Hyperliquid's snapshot cadence; a tighter per-message latency lands with the
+delta-streaming venue in the book stage. Numbers here are throughput/correctness, not yet
+a tuned hot path — the *measure-then-optimize* loop starts at the book engine.
 
 ## Roadmap (the SWE portfolio arc)
 

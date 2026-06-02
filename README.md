@@ -11,6 +11,8 @@ Sportsball is an autonomous, distributed-agent quantitative trading pipeline and
 
 > **Research findings (honest):** With real odds loaded (2011–2026) and a rigorous edge hunt, **no model beats the closing line** (sides CLV −1.67%, totals residual R² ≈ 0) — the market prices in everything our box-score features know. Line-shopping ≈ breakeven; the soft-book edge was real (2022–24) but **decayed**. The **one real, durable edge is line *movement* (steam)**: betting the side a total moves toward, at the *opening* number, wins 53–60%+ across **~56k games / 4 sports (NBA/MLB/NHL/NFL)** — a market-structure law, not basketball. The strategic pivot is **modeling the *market* (predicting the close/movement), not the *game*** — which shows a small but *positive* signal where game-modeling was zero. The live capture now records per-book open/close lines across in-season sports to chase it. Full writeup: **[Roadmap → Edge research](docs/ROADMAP.md)**.
 
+> **Current focus (2026):** the active work has moved beyond sports. See **[`research/`](research/README.md)** for the multi-market **prediction lab** (MLB/NHL/soccer win-prob models, DeFi time-series, crypto volatility forecasting, funding carry) and **[`lob-engine/`](lob-engine/README.md)** for a Rust + OCaml **low-latency order-book / market-data engine** (the quant-dev systems track). The sports pipeline documented below remains intact as the original scaffolding.
+
 ---
 
 ## ─── Quick Start ───
