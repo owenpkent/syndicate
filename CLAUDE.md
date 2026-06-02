@@ -213,10 +213,13 @@ Post-hoc calibration is now
 **auto-selected** (temperature *or* isotonic, whichever generalizes; persisted as
 `model_meta.calibration`), and the Engine **shrinks the Kelly stake by the
 model's calibration-confidence** (`strategy.uncertainty_scaling`). The served model
-is by default a 50/50 **ensemble** of the standardizing logistic and a
+is by default a **GBT-dominant ensemble** of the standardizing logistic and a
 gradient-boosted tree (`quant/models.EnsembleModel`, `strategy.model_ensemble`;
-same 9-feature contract, so no schema change — it pickles transparently into the
-bundle). All point-in-time features reset at season boundaries, symmetric
+GBT share `strategy.ensemble_gbt_weight`, **default 0.75** — validated by the
+train/val/test weight sweep in `notebooks/05`, which showed GBT-dominant beats the
+old 50/50 out-of-sample on accuracy, log-loss, *and* calibration; same 9-feature
+contract, so no schema change — it pickles transparently into the bundle). All
+point-in-time features reset at season boundaries, symmetric
 train/serve. Artifacts are
 `models/{win_prob_model.pkl, team_state.json, model_meta.json}`; a schema/width
 mismatch makes the Engine abstain until `make retrain`. After pulling these

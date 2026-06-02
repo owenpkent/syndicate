@@ -122,15 +122,23 @@ $$P_{\text{true}} = \sigma\!\Big(\beta_0 + \sum_j \beta_j\, z_j\Big),\qquad z_j 
 For the side named by the market, `predict_participant_prob` returns $P_{\text{true}}$
 for the home side or $1 - P_{\text{true}}$ for the away side.
 
-**Ensemble (default).** Serving is by default a 50/50 blend of this logistic and a
-gradient-boosted tree (`HistGradientBoostingClassifier`) over the same features —
-"ensemble many decorrelated signals" ([RESEARCH_NOTES](RESEARCH_NOTES.md)): the
-linear model is well-calibrated, the tree captures interactions, and they err
-differently. `quant/models.EnsembleModel` averages their `predict_proba`, exposes
-the sklearn API, and pickles transparently into the bundle — same 9-feature
-contract, **no schema change**. Toggle with `strategy.model_ensemble`; the GBM is
-best-effort (a failure falls back to the logistic alone). The calibrator is fit on
-the *same* construction used to serve, so calibration matches the ensemble.
+**Ensemble (default).** Serving is by default a **GBT-dominant** blend of this
+logistic and a gradient-boosted tree (`HistGradientBoostingClassifier`) over the
+same features — "ensemble many decorrelated signals"
+([RESEARCH_NOTES](RESEARCH_NOTES.md)): the tree captures interactions, the linear
+model adds diversification, and they err differently. The GBT share is
+`strategy.ensemble_gbt_weight` (**default 0.75**, logistic gets the rest). This was
+**validated** by a 3-way train/val/test sweep (`notebooks/05_ensemble_weight_sweep`):
+the validation optimum was the boundary (GBT-only), and out-of-sample on the test
+set GBT-dominant beats the old 50/50 on **accuracy (0.678 vs 0.666), log-loss, AND
+calibration** (raw-blend ECE drops monotonically with GBT weight — the tree is the
+better-calibrated learner here, contrary to the usual prior). Kept at 0.75 rather
+than 1.0 for a little diversification. `quant/models.EnsembleModel` averages their
+weighted `predict_proba`, exposes the sklearn API, and pickles transparently into
+the bundle — same 9-feature contract, **no schema change**. Toggle the whole
+ensemble with `strategy.model_ensemble`; the GBM is best-effort (a failure falls
+back to the logistic alone). The calibrator is fit on the *same* construction used
+to serve, so calibration matches the ensemble.
 
 ### 2.5 Player-derived roster strength (Moneyball)
 
