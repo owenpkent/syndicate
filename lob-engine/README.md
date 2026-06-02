@@ -1,0 +1,54 @@
+# lob-engine
+
+A low-latency **market-data + order-book + replay** engine, built to learn (and
+demonstrate) the systems side of quant infrastructure. The Rust crates own the
+latency-critical spine; an OCaml strategy layer (added later) owns the
+correctness-critical trading logic — the same division of labor a firm like Jane
+Street uses.
+
+> Lives inside the `sportsball` research repo for now (it reuses the existing
+> Hyperliquid/CEX collectors and `data/` stores). When polished it can be lifted
+> into a standalone repo with `git subtree split`, preserving its own history.
+
+## Architecture
+
+```
+   exchange WS ─▶  collector  ─▶  tape (normalized binary log)
+                                    │
+                                    ▼
+                          book engine (reconstruction)   ── planned
+                                    │
+                                    ▼
+                          replay engine (event-driven)   ── planned
+                                    │  typed event/fill stream
+                                    ▼
+                          OCaml strategy (A–S quoting)    ── planned
+```
+
+## Crates
+
+| Crate | Status | What it does |
+|---|---|---|
+| `tape` | ✅ | Normalized append-only binary market-data log (order-book snapshots + trades). Hand-rolled little-endian codec, no serde — explicit wire format, bounds-checked decode. Unit-tested roundtrip + corruption handling. |
+| `collector` | ✅ (v1) | Hyperliquid WebSocket → tape. Subscribes `l2Book` + `trades`, reconnects with backoff, logs throughput + an ingest-latency proxy. |
+| `book` | ⏳ | Order-book reconstruction engine (efficient price-level structures, gap detection, snapshot resync). The centerpiece. |
+| `replay` | ⏳ | Deterministic event-driven backtest/replay: simulated latency, queue-aware fills, fees. |
+
+## Build & run
+
+```bash
+cargo build --workspace
+cargo test  --workspace                       # tape codec tests
+cargo run -p collector -- --coins BTC,ETH --secs 10 --out /tmp/probe.tape
+```
+
+## Roadmap (the SWE portfolio arc)
+
+1. **Data spine** — collector + tape, with measured ingest latency/throughput. ← *here*
+2. **Book engine** — reconstruct full L2 from a delta-streaming venue (Coinbase
+   `level2`); benchmark p50/p99 update latency, property-test book invariants.
+3. **Replay engine** — replay the tape through a `Strategy` trait, realistic fills.
+4. **Strategy (OCaml)** — Avellaneda–Stoikov market-maker; decompose PnL into
+   spread captured vs adverse selection vs inventory.
+
+Performance numbers and flamegraphs land in this README as each stage ships.

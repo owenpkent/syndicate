@@ -39,6 +39,34 @@ honing **time-series / probabilistic prediction**, judged by accuracy & calibrat
 Per-sport DuckDB stores (`data/{mlb,nhl,wc,defi}.duckdb`) are all in `make backup`. The
 sports betting system below remains intact and documented but is no longer the focus.
 
+**Direction (2026-06b): a low-latency systems track — `lob-engine/`.** A separate,
+**non-Python** subproject aimed at the quant-developer/SWE craft (and a portfolio
+artifact): a market-data → order-book → replay → strategy engine. **Rust owns the
+latency-critical spine; OCaml will own the correctness-critical strategy logic** — the
+same split firms like Jane Street use. It reuses this repo's DeFi data sources but is
+otherwise self-contained, and can be lifted out later via `git subtree split` (preserving
+history). Status: v1 **data spine shipped** — a hand-rolled normalized binary `tape`
+(crate, no serde, bounds-checked codec, unit-tested) + a Hyperliquid WebSocket
+`collector` (reconnect/backoff, throughput + ingest-latency logging), verified end-to-end
+against live HL. Planned next: `book` (L2 reconstruction from a delta-streaming venue,
+benchmarked p50/p99) → `replay` (deterministic, queue-aware fills) → OCaml Avellaneda–Stoikov
+market-maker with spread/adverse-selection/inventory PnL decomposition. See
+`lob-engine/README.md`.
+
+```bash
+# Rust toolchain via rustup (installed under ~/.cargo, ~/.rustup); source the env first
+source "$HOME/.cargo/env"
+cd lob-engine && cargo build --workspace && cargo test --workspace
+cargo run -p collector -- --coins BTC,ETH,SOL --secs 10 --out /tmp/probe.tape  # live probe
+cargo run -p tape --example dump -- /tmp/probe.tape                            # inspect a tape
+```
+
+`lob-engine/` conventions: the hot path stays allocation-light and the tape wire format
+stays explicit (hand-rolled LE codec, not serde); commit `Cargo.lock` (binary workspace);
+keep `cargo test` green and add benchmarks/flamegraphs to the README as each crate ships.
+This track is **independent of the Python `make` targets** below — different toolchain,
+different tests.
+
 ## Commands
 
 ```bash
