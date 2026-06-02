@@ -13,3 +13,4 @@ src/analytics_engine/
 
 # Local backups (use an off-machine copy for real durability)
 backups/
+.ipynb_checkpoints

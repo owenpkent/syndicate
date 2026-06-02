@@ -7,7 +7,7 @@
 #     directory (./data/sportsball_postgres) is owned by the container's uid 70
 #     and mode 0700, so a host-side `cp -r` gets "permission denied" — a
 #     logical dump through the running container is the supported path.
-#   - DuckDB research store (data/sportsball.duckdb) — host-owned, file copy.
+#   - DuckDB stores (data/sportsball.duckdb + data/defi.duckdb) — host-owned, file copy.
 #   - Model artifacts (models/) + optimized_params.json — file copy.
 #
 # Redis is intentionally skipped: it's the broker/queue and is rebuildable.
@@ -64,12 +64,14 @@ else
   echo "   Start it (docker compose up -d ${PG_SERVICE}) and re-run for a full backup." >&2
 fi
 
-# --- DuckDB research store (host-owned file) ---
-if [[ -f data/sportsball.duckdb ]]; then
-  echo ">> Copying DuckDB research store..."
-  cp data/sportsball.duckdb "${DEST}/sportsball.duckdb"
-  echo "   wrote sportsball.duckdb ($(du -h "${DEST}/sportsball.duckdb" | cut -f1))"
-fi
+# --- DuckDB stores (host-owned files): sports research + DeFi time-series ---
+for store in sportsball defi; do
+  if [[ -f "data/${store}.duckdb" ]]; then
+    echo ">> Copying DuckDB store ${store}.duckdb..."
+    cp "data/${store}.duckdb" "${DEST}/${store}.duckdb"
+    echo "   wrote ${store}.duckdb ($(du -h "${DEST}/${store}.duckdb" | cut -f1))"
+  fi
+done
 
 # --- Model artifacts (regenerable, but cheap to snapshot) ---
 if [[ -d models ]]; then
