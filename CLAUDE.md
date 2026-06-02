@@ -37,10 +37,12 @@ sportsball-sbro-to-feed       # convert SBRO export/mirror archive -> ingest-odd
 make backfill-odds-history    # Odds API HISTORICAL snapshots -> events (recent closing lines; ~10cr/game-day)
 make capture-odds             # Odds API LIVE snapshot -> today's events (~1cr; free-tier, daily cron)
 make capture-quotes PHASE=open|close SPORT=baseball_mlb  # per-book h2h+totals -> odds_quotes (any sport; line-movement hunt)
+make capture-snapshot SPORT=baseball_mlb  # intraday per-book time series -> odds_snapshots (book lead-lag; MLB cron)
 make ingest-team-advanced     # nba_api possession stats (off/def/net rating, pace, PIE) -> DuckDB
 make clv                      # Closing Line Value — the primary edge KPI (needs odds + signals)
 make measure-features         # holdout feature ablation; model-quality = calibration + sweep
 make backtest-sim             # walk-forward betting backtest (ROI/win%/drawdown vs synthetic market+vig)
+make backtest-steam [MODE=kelly]  # steam backtest on real open/close: capture-fraction + bankroll/Kelly equity curve
 
 docker compose up -d --build  # full cluster (redis, postgres, agents, dashboard, approver)
 docker compose down -v        # REQUIRED after a schema change (init.sql only runs on empty volume)

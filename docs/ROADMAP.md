@@ -216,14 +216,33 @@ steam-chasing — are the real targets.
 
 ---
 
-## Recommendation
+## Recommendation — where this actually stands (2026-06)
 
-If the goal is to learn whether this is **real**, Tier 1 dominates: get a
-closing-odds feed and re-run the backtest against actual lines — that converts the
-project from "plausible, well-characterized skill" to a measured yes/no. The
-*plumbing* for the three highest-value items now exists — closing-odds ingest
-(Tier 1), the point-in-time availability feature (Tier 2.1), and cross-book line
-shopping + an order-independent arb key (Tier 2.3). What's left for each is **data,
-not code**: real closing lines, and real injury/availability coverage. Feed those
-in and re-run `make ingest-odds` → `make ingest-injuries` → `make retrain` →
-`make clv` to measure whether the edge is real.
+The "is it real?" question that Tier 1 was built to answer **has been answered.**
+Real closing odds are loaded (2011-2026), the model is retrained on them, and a
+rigorous multi-method edge hunt is complete (see *Edge research* above). The honest
+verdict: **no capturable edge in historical data at realistic execution.** The
+model can't beat the close; line-shopping ≈ breakeven; the soft-book edge decayed;
+the steam edge is real but **un-chaseable** (the backtest, `scripts/backtest_steam.py`,
+shows it dies once you model the capture fraction).
+
+**Only two paths survived**, both *modeling the market, not the game*, both about
+legitimately obtaining the opening number:
+1. **Predict-the-close** — forecast the move from open-time features (first positive
+   signal: OOS R² +0.016, CLV +2.4 pts, but a thin 83-bet sample).
+2. **Book lead-lag** — beat a lagging book to a number it hasn't moved yet (the
+   cleanest deployable edge; needs intraday per-book data).
+
+**Both are now data-gated, not code-gated.** The infrastructure is built and
+autonomous: `capture_snapshot.py` records intraday per-book MLB lines into
+`odds_snapshots` (free tier), nightly backups run to the NAS, and the backtest
+harness (`make backtest-steam`, with bankroll + fractional-Kelly + drawdown/ruin
+metrics) is ready to evaluate whatever the capture produces. The next real results
+need **weeks of live data**, after which:
+- **lead-lag analysis** on `odds_snapshots` — does beating the laggard clear the vig?
+- **scaled predict-the-close** — does the 83-bet signal hold over thousands of live games?
+- **(optional) productionize predict-the-close into the Engine** (PAPER) for live
+  CLV self-validation.
+
+Net: the research is done, the answer is honest, and converting the two surviving
+edges to profit is now an **execution + data-accumulation** problem, not a modeling one.
