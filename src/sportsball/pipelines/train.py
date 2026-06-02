@@ -107,10 +107,11 @@ def _logistic() -> Pipeline:
     return Pipeline([("scaler", StandardScaler()), ("lr", LogisticRegression(max_iter=1000))])
 
 
-def _build_model(X, y, ensemble: bool):
-    """Fit the serving model: a standardizing logistic, optionally ensembled 50/50
-    with a gradient-boosted tree. The GBM is best-effort — any failure (too little
-    data, etc.) falls back to the logistic alone so a retrain never dies on it."""
+def _build_model(X, y, ensemble: bool, gbt_weight: float = 0.5):
+    """Fit the serving model: a standardizing logistic, optionally ensembled with a
+    gradient-boosted tree (GBT gets ``gbt_weight``, logistic the rest). The GBM is
+    best-effort — any failure (too little data, etc.) falls back to the logistic
+    alone so a retrain never dies on it."""
     lr = _logistic().fit(X, y)
     if not ensemble:
         return lr
@@ -118,13 +119,13 @@ def _build_model(X, y, ensemble: bool):
         from sklearn.ensemble import HistGradientBoostingClassifier
         gb = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.05,
                                             max_depth=3, random_state=0).fit(X, y)
-        return EnsembleModel([(lr, 0.5), (gb, 0.5)])
+        return EnsembleModel([(lr, 1.0 - gbt_weight), (gb, gbt_weight)])
     except Exception as exc:  # noqa: BLE001
         log.warning("Ensemble GBM failed (%s); using logistic only.", exc)
         return lr
 
 
-def _fit_calibration(X, y, ensemble: bool, cal_frac: float = 0.1) -> dict:
+def _fit_calibration(X, y, ensemble: bool, gbt_weight: float = 0.5, cal_frac: float = 0.1) -> dict:
     """Fit a calibration spec on a held-out recent tail (auto: temperature vs isotonic).
 
     Trains a probe model (same construction as the final model) on the earlier
@@ -136,7 +137,7 @@ def _fit_calibration(X, y, ensemble: bool, cal_frac: float = 0.1) -> dict:
     cut = int(len(X) * (1 - cal_frac))
     if cut < 100 or len(X) - cut < 50:
         return {"method": "identity"}
-    probe = _build_model(X[:cut], y[:cut], ensemble)
+    probe = _build_model(X[:cut], y[:cut], ensemble, gbt_weight)
     p = probe.predict_proba(X[cut:])[:, 1]
     return calibration.fit(p, y[cut:], method="auto")
 
@@ -169,12 +170,14 @@ def run(db: Database) -> bool:
     y = np.array([1 if r.actual >= 1.0 else 0 for r in rows])
 
     ensemble = strategy.model_ensemble
+    gbt_weight = strategy.ensemble_gbt_weight
     log.info("Training %s on %d samples × %d features...",
-             "logistic+GBM ensemble" if ensemble else "logistic Pipeline", len(X), feat.N_FEATURES)
-    model = _build_model(X, y, ensemble)
+             f"logistic+GBM ensemble (GBT weight {gbt_weight})" if ensemble else "logistic Pipeline",
+             len(X), feat.N_FEATURES)
+    model = _build_model(X, y, ensemble, gbt_weight)
     log.info("In-sample accuracy: %.4f (%s)", model.score(X, y),
              type(model).__name__)
-    calib = _fit_calibration(X, y, ensemble)
+    calib = _fit_calibration(X, y, ensemble, gbt_weight)
     temperature = float(calib.get("temperature", 1.0))  # back-compat surface
     log.info("Calibration: %s", calib.get("method"))
 

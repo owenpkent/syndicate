@@ -62,6 +62,12 @@ class StrategyConfig:
     # Blend the logistic with a gradient-boosted tree (ensemble) at train time.
     # On by default; set false to serve the logistic alone.
     model_ensemble: bool = True
+    # GBT share of the ensemble blend (logistic gets 1 - this). Validated GBT-
+    # dominant: a 3-way train/val/test sweep (notebooks/05) put the optimum at the
+    # boundary (GBT-only), with GBT-only beating 50/50 out-of-sample on accuracy
+    # AND log-loss. Kept at 0.75 (not 1.0) to retain the better-calibrated logistic,
+    # since the Engine shrinks Kelly by calibration confidence.
+    ensemble_gbt_weight: float = 0.75
     default_slippage: float = 0.005
     max_global_exposure_pct: float = 0.15
     correlation_penalty_multiplier: float = 0.5
