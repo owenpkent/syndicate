@@ -26,6 +26,7 @@ make setup                                   # base env
 | `08_world_cup_model.ipynb` | `data/wc.duckdb` | World Cup / international football: 3-class (W/D/L) Elo model on 49k matches (`research/wc/`). Overall vs World-Cup-specific holdout (~51% 3-way), top-team Elo, and 2026 fixture predictions. |
 | `09_nhl_model.ipynb` | `data/nhl.duckdb` | NHL hockey win-prob: the binary Elo+feature pipeline on 18k games (`research/nhl/`). Holdout accuracy/log-loss/calibration, Elo ratings, skill-over-time. Honest ~56% (ceiling = starting goalie). |
 | `10_crypto_timeseries.ipynb` | `data/defi.duckdb` | What's predictable in crypto: Fourier spectra + ACF + OOS predictability on BTC 1-min. Direction ~50% / R²≈0 (efficient), but volatility R²≈0.42 and volume is 24h-seasonal. Fourier as a diagnostic, not a predictor. |
+| `11_polymarket_calibration.ipynb` | `data/defi.duckdb` | Is Polymarket calibrated across categories? 1.5k resolved markets (`research/defi/ingest_polymarket_resolved.py`): overall reliability + favorite-longshot bins + per-category Brier (Sports sharpest 0.13; Crypto highest 0.25 = uncertainty, not mispricing). Broadly efficient. |
 
 All degrade gracefully on sparse data and re-run idempotently.
 
