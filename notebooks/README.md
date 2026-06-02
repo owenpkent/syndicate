@@ -16,8 +16,8 @@ make setup                                   # base env
 
 | Notebook | Reads | Shows |
 |---|---|---|
-| `01_defi_explore.ipynb` | `data/defi.duckdb` | HL↔CEX basis over time, funding/OI cross-section, Polymarket crypto mids, CEX↔DEX lead-lag, and a first baseline predictive check (does basis predict the next CEX move). Fills in as the cron accumulates. |
+| `01_defi_explore.ipynb` | `data/defi.duckdb` | HL↔CEX basis & lead-lag on backfilled 1-min candles, funding over time, funding/OI cross-section, and a basis→next-move baseline. Uses `backfill_history.py` history (populated now). |
 | `02_model_eval.ipynb` | `data/sportsball.duckdb` | Offline walk-forward holdout of the v4 win-prob model — reliability/calibration curve, accuracy by confidence bucket, model-vs-market (CLV proxy). No Postgres needed. |
-| `03_polymarket_eval.ipynb` | `data/defi.duckdb` | Scores Polymarket crypto-market mids against the realized CEX price (parses "above $X on <date>" questions) — Brier + calibration of the prediction market. Populates as threshold markets resolve. |
+| `03_polymarket_eval.ipynb` | `data/defi.duckdb` | Scores Polymarket crypto mids against settled outcomes (`pm_resolved`) — Brier + calibration, using the mid ~24h pre-close as the prediction. Populated from backfilled resolved markets. |
 
 Both degrade gracefully on sparse data and re-run idempotently.
