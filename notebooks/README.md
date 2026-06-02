@@ -25,6 +25,7 @@ make setup                                   # base env
 | `07_mlb_model.ipynb` | `data/mlb.duckdb` | Baseball win-prob model: the sport-agnostic Elo+feature pipeline on 38k real MLB games (`research/mlb/ingest_mlb.py`). Holdout accuracy/log-loss/calibration, Elo ratings, skill-over-time. Honest ~56% (ceiling = starting pitcher). |
 | `08_world_cup_model.ipynb` | `data/wc.duckdb` | World Cup / international football: 3-class (W/D/L) Elo model on 49k matches (`research/wc/`). Overall vs World-Cup-specific holdout (~51% 3-way), top-team Elo, and 2026 fixture predictions. |
 | `09_nhl_model.ipynb` | `data/nhl.duckdb` | NHL hockey win-prob: the binary Elo+feature pipeline on 18k games (`research/nhl/`). Holdout accuracy/log-loss/calibration, Elo ratings, skill-over-time. Honest ~56% (ceiling = starting goalie). |
+| `10_crypto_timeseries.ipynb` | `data/defi.duckdb` | What's predictable in crypto: Fourier spectra + ACF + OOS predictability on BTC 1-min. Direction ~50% / R²≈0 (efficient), but volatility R²≈0.42 and volume is 24h-seasonal. Fourier as a diagnostic, not a predictor. |
 
 All degrade gracefully on sparse data and re-run idempotently.
 
