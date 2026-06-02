@@ -15,6 +15,15 @@ keep docs honest.
 Everything is one installable Python package (`sportsball`) running on a single
 Docker image; each agent is a console entrypoint.
 
+**Direction (2026-06): pivot to DeFi time-series.** The owner's actual goal is
+honing **time-series prediction**, target domain **decentralized finance** — the
+sports pipeline was scaffolding for the methodology (find signal → validate
+honestly → backtest realistically). New work lives in `research/defi/`: free,
+keyless collectors snapshotting Hyperliquid perps (funding/OI/book), Coinbase +
+Kraken spot, and Polymarket crypto books into a separate `data/defi.duckdb`, plus
+a CEX↔DEX lead-lag analysis. See `research/defi/README.md`. The sports system
+below remains intact and documented but is no longer the focus.
+
 ## Commands
 
 ```bash

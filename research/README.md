@@ -10,6 +10,16 @@ Findings are condensed into the `edge-research` memory and `docs/ROADMAP.md`.
 | File | Market | What it asks |
 |------|--------|--------------|
 | `polymarket_scan.py` | Polymarket prediction markets | Characterize markets (vig/spread/liquidity) + cross-venue divergence vs the sharp sportsbook line (same MLB games) — does Polymarket misprice relative to a sharper book? |
+| `log_polymarket_divergence.py` | Polymarket vs sharp book | Accumulating log of pre-game Polymarket-vs-sharp divergence (MLB) → `polymarket_divergence`; does buying the poly-cheap side on a >X% gap win? |
+| `defi/` | **DeFi time-series** (Hyperliquid perps, CEX spot, Polymarket crypto books) | The pivot toward time-series prediction on decentralized finance — dense microstructure snapshots → `data/defi.duckdb`, plus CEX↔DEX lead-lag. See `defi/README.md`. |
+
+## Context — the pivot to DeFi time-series
+The real goal is honing **time-series prediction**, target domain **decentralized
+finance**; sports/prediction markets were scaffolding. `defi/` collects a dense,
+continuous, microstructured substrate (on-chain perps + CEX spot + on-chain
+prediction books) — a far better forecasting gym than ~1 settled outcome per game
+per day. The two ideas that survived the sports edge hunt (book lead-lag, the
+market-line-as-input lever) transfer directly to crypto venues.
 
 ## Context — why prediction markets
 The sports edge hunt concluded: no capturable edge except possibly book lead-lag

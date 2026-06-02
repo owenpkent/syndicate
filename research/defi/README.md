@@ -19,6 +19,21 @@ with the sports odds writers. Free, no API keys.
 (last) at the same cadence, then join on `asset` + nearest `captured_at` to ask
 which venue moves first and by how long.
 
+## Analysis
+
+`analyze_leadlag.py` (read-only) reports, per asset:
+- **basis** — Hyperliquid mark vs CEX spot (mean / std / latest), plus the
+  inter-CEX (Coinbase vs Kraken) spread as a sanity floor: a basis much larger
+  than the inter-CEX spread is a real venue dislocation, not quote noise.
+- **lead-lag** — on a common time grid, the lag that maximizes HL-return vs
+  CEX-return correlation. Positive lag ⇒ HL leads (CEX follows). Needs ~22 grid
+  points (~110 min at 5-min cadence); reports basis only until then.
+
+```bash
+python research/defi/analyze_leadlag.py
+python research/defi/analyze_leadlag.py --grid 5 --max-lag 6 --venue coinbase
+```
+
 ## Run
 
 ```bash
