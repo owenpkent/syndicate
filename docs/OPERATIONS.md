@@ -354,3 +354,31 @@ trusting any backtest ROI.
 **Research odds (paid, one-time):** `scripts/backfill_odds_markets_duckdb.py`
 pulled **per-book h2h + totals** into DuckDB `odds_quotes` (248k quotes, 23 books)
 — line-shopping + totals raw material; see SCHEMA.md.
+
+---
+
+## 10. Autonomy & boot persistence
+
+The data pipeline runs **unattended and survives reboot / power loss** — no login
+or manual restart needed. Verified pieces:
+
+| Component | What runs it | Boot-safe |
+|---|---|---|
+| Intraday line capture | host **cron** (`capture_snapshot.py`, MLB every 2h, → DuckDB `odds_snapshots`) | `systemctl is-enabled cron` = enabled |
+| Nightly backup → NAS | host **cron** (`backup.sh` 03:30, MIRROR=/mnt/nas_1) | same |
+| Postgres / Redis / Engine | **Docker** restart policy (`unless-stopped` / `always`) | `systemctl is-enabled docker` = enabled |
+| NAS mirror mount | `/etc/fstab` (`nofail`, `x-systemd.automount`) | mounts on boot/first access |
+
+Robustness notes:
+- **Capture needs no Postgres/Docker** — `capture_snapshot.py` writes only the
+  DuckDB file, so it works the moment the host has network + disk, regardless of
+  container startup timing.
+- **Backup degrades gracefully** — its `pg_dump` needs the Postgres container; if
+  it ever fired before Docker finished booting it just warns and still snapshots
+  DuckDB + models. (03:30 is well after any boot, so moot.)
+- User crontabs run via the cron daemon **without an interactive login**, so the
+  machine can sit headless for weeks accumulating `odds_snapshots` for the
+  lead-lag analysis.
+
+Check the schedule with `crontab -l`; capture/backup logs land in
+`data/odds_capture.log` and `data/backup.log`.
