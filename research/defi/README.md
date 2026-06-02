@@ -19,6 +19,35 @@ with the sports odds writers. Free, no API keys.
 (last) at the same cadence, then join on `asset` + nearest `captured_at` to ask
 which venue moves first and by how long.
 
+## Historical backfill
+
+The live collectors only see the present. `backfill_history.py` seeds weeks of
+history in one shot (free, no keys) so the notebooks have real numbers immediately
+instead of waiting on the cron. It writes **separate history tables** (candles /
+time series, distinct from the live point-in-time snapshots above):
+
+| Source | Table | What backfills |
+|---|---|---|
+| Hyperliquid candles | `hl_candles` | 1-min OHLCV (mark/price proxy), per coin |
+| Hyperliquid funding | `hl_funding_hist` | hourly funding rate + premium, per coin |
+| Coinbase candles | `cex_candles` | spot OHLCV (60s default, paginated) |
+| Polymarket history | `pm_price_hist` | per-market mid time series (open + resolved crypto) |
+| Polymarket resolved | `pm_resolved` | resolved crypto markets **with settled outcome** (`outcomePrices`) — the calibration ground truth |
+
+**What does NOT backfill: order-book depth.** `hl_book` / `pm_book` spreads and
+depth come only from live snapshots — there's no historical L2 endpoint. Price,
+funding, and resolved outcomes all backfill; microstructure depth does not.
+
+```bash
+python research/defi/backfill_history.py                 # 14d, default coins
+python research/defi/backfill_history.py --days 30 --coins BTC,ETH,SOL
+python research/defi/backfill_history.py --only polymarket
+```
+
+`backfill_history` is a **one-shot seed** (idempotent — `ON CONFLICT DO NOTHING`),
+not a cron; re-run it to extend the window. The cron collectors keep the live
+tables current going forward.
+
 ## Analysis
 
 `analyze_leadlag.py` (read-only) reports, per asset:

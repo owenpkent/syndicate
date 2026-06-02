@@ -20,9 +20,13 @@ honing **time-series prediction**, target domain **decentralized finance** — t
 sports pipeline was scaffolding for the methodology (find signal → validate
 honestly → backtest realistically). New work lives in `research/defi/`: free,
 keyless collectors snapshotting Hyperliquid perps (funding/OI/book), Coinbase +
-Kraken spot, and Polymarket crypto books into a separate `data/defi.duckdb`, plus
-a CEX↔DEX lead-lag analysis. See `research/defi/README.md`. The sports system
-below remains intact and documented but is no longer the focus.
+Kraken spot, and Polymarket crypto books into a separate `data/defi.duckdb`, a
+CEX↔DEX lead-lag analysis, and a one-shot `backfill_history.py` that seeds weeks
+of candle/funding/resolved-outcome history (everything but order-book depth, which
+is live-only). See `research/defi/README.md`. Visualizations live in `notebooks/`
+(`[notebook]` extra → jupyterlab; `01_defi_explore`, `02_model_eval`,
+`03_polymarket_eval`). The sports system below remains intact and documented but
+is no longer the focus.
 
 ## Commands
 
