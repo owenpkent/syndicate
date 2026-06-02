@@ -22,6 +22,7 @@ make setup                                   # base env
 | `04_model_predictions.ipynb` | `data/sportsball.duckdb` | Per-game view of what *each* learner predicts — logistic vs GBT vs ensemble vs market — with the actual outcome. Dot plot of recent games, where-they-disagree scatter, and who-wins-the-disagreements analysis. Out-of-sample, mirrors `pipelines/train.py`. |
 | `05_ensemble_weight_sweep.ipynb` | `data/sportsball.duckdb` | Finds the best logistic↔GBT blend weight honestly (train/val/test 3-way split: pick weight on validation, report on test). Validation curve + unbiased test table + calibration/ECE check. Result: GBT-dominant (shipped 0.75) beats the old 50/50 on accuracy, log-loss, and calibration. |
 | `06_model_comms.ipynb` | `data/sportsball.duckdb` | Four ways to *communicate* the prediction data: cumulative-accuracy race, rolling logistic↔GBT divergence, predicted-probability distribution (why GBT wins), and an interactive plotly per-game explorer. |
+| `07_mlb_model.ipynb` | `data/mlb.duckdb` | Baseball win-prob model: the sport-agnostic Elo+feature pipeline on 38k real MLB games (`research/mlb/ingest_mlb.py`). Holdout accuracy/log-loss/calibration, Elo ratings, skill-over-time. Honest ~56% (ceiling = starting pitcher). |
 
 All degrade gracefully on sparse data and re-run idempotently.
 
