@@ -47,7 +47,7 @@ def render_one(nb_path: Path, out_dir: Path) -> bool:
             nb = nbformat.read(nb_path, as_version=4)
             ep = ExecutePreprocessor(timeout=TIMEOUT, kernel_name=KERNEL)
             ep.preprocess(nb, {"metadata": {"path": str(REPO)}})  # cwd = repo root
-            body, _ = HTMLExporter().from_notebook_node(nb)
+            body, _ = HTMLExporter(theme="dark").from_notebook_node(nb)
             (out_dir / f"{name}.html").write_text(body, encoding="utf-8")
             log.info("ok   %s (attempt %d)", name, attempt)
             return True
@@ -65,10 +65,13 @@ def write_index(out_dir: Path, date: str, rendered: list[str], ok: int, fail: in
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     out_dir.joinpath("index.html").write_text(
         f"<!doctype html><meta charset=utf-8><title>sportsball notebooks {date}</title>"
-        "<style>body{font:16px/1.6 system-ui,sans-serif;max-width:640px;margin:3rem auto;"
-        "padding:0 1rem}a{display:block;padding:.4rem 0}h1{font-size:1.4rem}</style>"
+        "<style>:root{color-scheme:dark}body{font:16px/1.6 system-ui,sans-serif;max-width:640px;"
+        "margin:3rem auto;padding:0 1rem;background:#0d1117;color:#c9d1d9}"
+        "a{display:block;padding:.5rem .75rem;margin:.25rem 0;color:#58a6ff;text-decoration:none;"
+        "border:1px solid #21262d;border-radius:6px}a:hover{background:#161b22;border-color:#30363d}"
+        "h1{font-size:1.4rem;color:#e6edf3}</style>"
         f"<h1>sportsball notebooks — {date} (UTC)</h1>\n{links}\n"
-        f"<p style=color:#888>rendered {stamp} · {ok} ok, {fail} failed</p>", encoding="utf-8")
+        f"<p style=color:#8b949e>rendered {stamp} · {ok} ok, {fail} failed</p>", encoding="utf-8")
 
 
 def prune(root: Path) -> None:
@@ -80,6 +83,7 @@ def prune(root: Path) -> None:
 
 
 def main() -> int:
+    os.environ["NB_DARK"] = "1"  # notebooks honor this for dark matplotlib/seaborn/plotly themes
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     root = REPO / "notebooks" / "rendered"
     out_dir = root / date

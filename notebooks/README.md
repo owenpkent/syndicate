@@ -30,7 +30,9 @@ All degrade gracefully on sparse data and re-run idempotently.
 `make render` (or `python scripts/render_notebooks.py`) executes every notebook **fresh
 against current data** and writes dated HTML to `notebooks/rendered/<UTC date>/`,
 with an `index.html` and a `latest` symlink — open `notebooks/rendered/latest/index.html`
-in a browser. Each notebook is retried a few times (read-only DuckDB opens can
+in a browser. The rendered dashboard is **dark-themed** (chrome, matplotlib, and
+plotly); the render job sets `NB_DARK=1`, which the notebooks honor — interactive
+Jupyter stays light unless you export `NB_DARK` yourself. Each notebook is retried a few times (read-only DuckDB opens can
 collide with a capture cron's brief write lock); old days prune to `KEEP` (14).
 The rendered output is gitignored. A daily cron runs it at 04:30 UTC (after the
 nightly backup), logging to `data/render.log`.
