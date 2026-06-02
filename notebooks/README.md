@@ -28,6 +28,7 @@ make setup                                   # base env
 | `10_crypto_timeseries.ipynb` | `data/defi.duckdb` | What's predictable in crypto: Fourier spectra + ACF + OOS predictability on BTC 1-min. Direction ~50% / R²≈0 (efficient), but volatility R²≈0.42 and volume is 24h-seasonal. Fourier as a diagnostic, not a predictor. |
 | `11_polymarket_calibration.ipynb` | `data/defi.duckdb` | Is Polymarket calibrated across categories? 1.5k resolved markets (`research/defi/ingest_polymarket_resolved.py`): overall reliability + favorite-longshot bins + per-category Brier (Sports sharpest 0.13; Crypto highest 0.25 = uncertainty, not mispricing). Broadly efficient. |
 | `12_funding_carry.ipynb` | `data/defi.duckdb` | Funding-carry tracker: ranks Hyperliquid perps by *persistent* carry (mean funding × sign-stability) vs transient spikes, over 30d hourly `hl_funding_hist`. Separates real delta-neutral yield (e.g. XMR ~41%/yr, 98% stable) from spikes (HYPE's +29% is ~8.6% persistent). |
+| `13_funding_carry_backtest.ipynb` | `data/defi.duckdb` | Net-of-costs backtest of the delta-neutral carry: gross funding − fees − spot-borrow. XMR nets ~37.6% (stable, no borrow); liquid majors ~4–5%; negative-funding alts depend on borrow. Flags that the reported Sharpe/DD are artifacts (funding smoothness, not basis/liquidation risk). |
 
 All degrade gracefully on sparse data and re-run idempotently.
 
