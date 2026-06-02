@@ -35,7 +35,7 @@ firm like Jane Street uses.
 | `collector` | ✅ | Hyperliquid WebSocket → tape. Subscribes `l2Book` + `trades`, reconnects with backoff, logs throughput + an ingest-latency proxy. |
 | `book` | ✅ | L2 order-book reconstruction from snapshot + sequenced deltas: fixed-point ticks, gap detection + resync, best/mid/microprice/spread. 5 unit tests + a proptest on book invariants. |
 | `agent` | ✅ | Native AI-agent runtime — hand-rolled Anthropic Messages API client + tool-use loop (the strategy coach). Tool trait + `bash`/`read_file` starter tools, **MCP client** (stdio JSON-RPC — attach any Model Context Protocol server's tools), and a CLI. 10 tests incl. an end-to-end MCP stdio round-trip. Needs `ANTHROPIC_API_KEY`. |
-| `replay` | ⏳ | Steps a tape through sim-time into the book; deterministic, simulated latency, fees. The game clock. |
+| `replay` | ✅ | Steps a tape through sim-time into the `book`, exposing the live market (mid/spread/microprice/ladder) in real price units; fixed-point in, dollars out; symbol auto-lock; `pace()` speed knob. The game clock. 3 tests + a `play` example (verified live: real BTC tape → bid/ask/mid/trades). |
 | `sim` | ⏳ | Player state: position, cash, realized/unrealized PnL, drawdown; matches your orders against the book. |
 | `tui` | ⏳ | The playable interface (ratatui): order-book ladder, price chart, position panel, and an "ask the coach" prompt wired to `agent` + market tools. |
 
@@ -46,6 +46,7 @@ cargo build --workspace
 cargo test  --workspace                                  # tape + book + agent tests
 cargo run -p collector -- --coins BTC,ETH,SOL --secs 10 --out /tmp/probe.tape
 cargo run -p tape --example dump -- /tmp/probe.tape       # inspect a captured tape
+cargo run -p replay --example play -- /tmp/probe.tape --speed 60  # watch the market replay
 ANTHROPIC_API_KEY=sk-ant-... cargo run -p agent -- "do the crates build?"  # AI coach (CLI)
 # attach any MCP server (repeatable) — its tools join the coach's toolbox:
 cargo run -p agent -- --mcp "npx -y @modelcontextprotocol/server-filesystem ." "summarize the READMEs"
@@ -76,9 +77,8 @@ a tuned hot path — the *measure-then-optimize* loop starts at the book engine.
 1. **Data spine** — collector + tape, with measured ingest latency/throughput. ✅
 2. **Book engine** — L2 reconstruction, gap detection, proptest invariants. ✅
 3. **AI coach** — native Rust agent runtime (Anthropic client + tool loop). ✅
-4. **Replay engine** — step a tape through sim-time into the book (the game clock);
-   deterministic, simulated latency, fees. ← *next*
-5. **Sim** — player position / cash / PnL; match player orders against the book.
+4. **Replay engine** — step a tape through sim-time into the book (the game clock). ✅
+5. **Sim** — player position / cash / PnL; match player orders against the book. ← *next*
 6. **TUI (ratatui)** — order-book ladder + price chart + position panel + an
    "ask the coach" prompt wired to `agent` with `read_book` / `my_position` /
    `recent_trades` tools. **Now it's playable.**
