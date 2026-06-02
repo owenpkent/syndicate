@@ -197,8 +197,10 @@ def main() -> None:
                         end_ts = datetime.fromisoformat(end.replace("Z", "+00:00")).replace(tzinfo=None)
                     except Exception:  # noqa: BLE001
                         end_ts = None
-                con.execute("INSERT INTO pm_resolved VALUES (?,?,?,?) ON CONFLICT DO NOTHING;",
-                            [cid, q, yes, end_ts])
+                con.execute(
+                    "INSERT INTO pm_resolved (condition_id, question, yes_outcome, end_date) "
+                    "VALUES (?,?,?,?) ON CONFLICT DO NOTHING;",
+                    [cid, q, yes, end_ts])
                 res_rows += 1
             for i, tok in enumerate(toks):
                 outcome = outs[i] if i < len(outs) else str(i)
