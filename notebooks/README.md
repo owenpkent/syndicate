@@ -23,4 +23,14 @@ make setup                                   # base env
 | `05_ensemble_weight_sweep.ipynb` | `data/sportsball.duckdb` | Finds the best logistic↔GBT blend weight honestly (train/val/test 3-way split: pick weight on validation, report on test). Validation curve + unbiased test table + calibration/ECE check. Result: GBT-dominant (shipped 0.75) beats the old 50/50 on accuracy, log-loss, and calibration. |
 | `06_model_comms.ipynb` | `data/sportsball.duckdb` | Four ways to *communicate* the prediction data: cumulative-accuracy race, rolling logistic↔GBT divergence, predicted-probability distribution (why GBT wins), and an interactive plotly per-game explorer. |
 
-Both degrade gracefully on sparse data and re-run idempotently.
+All degrade gracefully on sparse data and re-run idempotently.
+
+## Rendered dashboard (passive, no Jupyter)
+
+`make render` (or `scripts/render_notebooks.sh`) executes every notebook **fresh
+against current data** and writes dated HTML to `notebooks/rendered/<UTC date>/`,
+with an `index.html` and a `latest` symlink — open `notebooks/rendered/latest/index.html`
+in a browser. Each notebook is retried a few times (read-only DuckDB opens can
+collide with a capture cron's brief write lock); old days prune to `KEEP` (14).
+The rendered output is gitignored. A daily cron runs it at 04:30 UTC (after the
+nightly backup), logging to `data/render.log`.

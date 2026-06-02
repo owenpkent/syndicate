@@ -128,6 +128,9 @@ calibrate:
 	@DB_HOST=localhost $(PYTHON) scripts/visualize_calibration.py
 	@echo "Output saved to data/plots/calibration_plot.png"
 
+render:                        # execute all notebooks -> dated HTML dashboard
+	@./scripts/render_notebooks.sh
+
 clv:
 	@DB_HOST=localhost $(PYTHON) -m sportsball.tools.clv
 
