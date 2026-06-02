@@ -241,12 +241,22 @@ legitimately obtaining the opening number:
 autonomous: `capture_snapshot.py` records intraday per-book MLB lines into
 `odds_snapshots` (free tier), nightly backups run to the NAS, and the backtest
 harness (`make backtest-steam`, with bankroll + fractional-Kelly + drawdown/ruin
-metrics) is ready to evaluate whatever the capture produces. The next real results
-need **weeks of live data**, after which:
-- **lead-lag analysis** on `odds_snapshots` — does beating the laggard clear the vig?
-- **scaled predict-the-close** — does the 83-bet signal hold over thousands of live games?
-- **(optional) productionize predict-the-close into the Engine** (PAPER) for live
-  CLV self-validation.
+metrics) is ready to evaluate whatever the capture produces.
 
-Net: the research is done, the answer is honest, and converting the two surviving
-edges to profit is now an **execution + data-accumulation** problem, not a modeling one.
+**Predict-the-close is now tested and dead** (scaled across 4 sports, doesn't beat
+the vig — see *Edge research* §). **Lead-lag is the only remaining untested edge.**
+
+**Decision (2026-06): wait.** Let the free live `odds_snapshots` capture accumulate
+(MLB, intraday, autonomous) and run the lead-lag analysis in a few weeks — *does
+beating a lagging book to its number clear the −110 vig?* The paid shortcut is
+**staged but not taken**: `scripts/backfill_intraday_history.py` would pull ~40
+game-days of historical intraday per-book snapshots (~$30 / ~16.8k credits,
+`--dry-run`/`--budget` safe) to answer the same question in a day instead of weeks
+— ready to fire if patience runs out.
+
+Net: the research is done, the answer is honest. Of the original edges, only
+lead-lag survives untested, and it's an **execution + data** problem now, not a
+modeling one. The transferable asset is the *methodology* (find a structural
+inefficiency → validate honestly → backtest with realistic execution + bankroll),
+which applies to any microstructure market — crypto cross-venue, prediction markets
+(the Polymarket plumbing already exists) — more than to more sports modeling.
