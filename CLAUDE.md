@@ -39,19 +39,21 @@ honing **time-series / probabilistic prediction**, judged by accuracy & calibrat
 Per-sport DuckDB stores (`data/{mlb,nhl,wc,defi}.duckdb`) are all in `make backup`. The
 sports betting system below remains intact and documented but is no longer the focus.
 
-**Direction (2026-06b): a low-latency systems track — `lob-engine/`.** A separate,
-**non-Python** subproject aimed at the quant-developer/SWE craft (and a portfolio
-artifact): a market-data → order-book → replay → strategy engine. **Rust owns the
-latency-critical spine; OCaml will own the correctness-critical strategy logic** — the
-same split firms like Jane Street use. It reuses this repo's DeFi data sources but is
-otherwise self-contained, and can be lifted out later via `git subtree split` (preserving
-history). Status: v1 **data spine shipped** — a hand-rolled normalized binary `tape`
-(crate, no serde, bounds-checked codec, unit-tested) + a Hyperliquid WebSocket
-`collector` (reconnect/backoff, throughput + ingest-latency logging), verified end-to-end
-against live HL. Planned next: `book` (L2 reconstruction from a delta-streaming venue,
-benchmarked p50/p99) → `replay` (deterministic, queue-aware fills) → OCaml Avellaneda–Stoikov
-market-maker with spread/adverse-selection/inventory PnL decomposition. See
-`lob-engine/README.md`.
+**Direction (2026-06b): `lob-engine/` — an all-Rust trading-simulator GAME with an AI coach.**
+A separate, **non-Python** subproject (quant-developer/SWE craft + portfolio + something fun
+to play): replay a real captured order-book `tape`, trade against the reconstructed `book`,
+and an embedded **AI strategy coach** reads the live market + your position and advises you.
+Under the hood it's a genuine low-latency market-data → order-book → replay engine. **All
+Rust** (an earlier Rust-spine/OCaml-strategy split was dropped — the AI coach replaced the
+hand-coded strategy). Reuses this repo's DeFi data sources; can be lifted out later via
+`git subtree split`. **Crates shipped (all `cargo test`-green):** `tape` (hand-rolled LE
+binary market-data log) · `collector` (Hyperliquid WS → tape, verified live) · `book` (L2
+reconstruction from snapshot+sequenced deltas, gap detection, proptest invariants) · `agent`
+(native AI runtime — hand-rolled Anthropic Messages client + tool-use loop, `bash`/`read_file`
+tools, **MCP client** over stdio JSON-RPC so any Model Context Protocol server's tools plug in,
+needs `ANTHROPIC_API_KEY`). **Planned:** `replay` (tape → sim-time → book, the game clock) →
+`sim` (player position/cash/PnL + fills) → `tui` (ratatui: book ladder + chart + position +
+"ask the coach"). See `lob-engine/README.md`.
 
 ```bash
 # Rust toolchain via rustup (installed under ~/.cargo, ~/.rustup); source the env first
@@ -59,6 +61,7 @@ source "$HOME/.cargo/env"
 cd lob-engine && cargo build --workspace && cargo test --workspace
 cargo run -p collector -- --coins BTC,ETH,SOL --secs 10 --out /tmp/probe.tape  # live probe
 cargo run -p tape --example dump -- /tmp/probe.tape                            # inspect a tape
+ANTHROPIC_API_KEY=… cargo run -p agent -- --mcp "<server cmd>" "your request"  # AI coach + MCP
 ```
 
 `lob-engine/` conventions: the hot path stays allocation-light and the tape wire format

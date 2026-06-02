@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod mcp;
 pub mod tools;
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";

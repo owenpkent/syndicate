@@ -34,7 +34,7 @@ firm like Jane Street uses.
 | `tape` | ✅ | Normalized append-only binary market-data log (order-book snapshots + trades). Hand-rolled little-endian codec, no serde — explicit wire format, bounds-checked decode. Unit-tested roundtrip + corruption handling. |
 | `collector` | ✅ | Hyperliquid WebSocket → tape. Subscribes `l2Book` + `trades`, reconnects with backoff, logs throughput + an ingest-latency proxy. |
 | `book` | ✅ | L2 order-book reconstruction from snapshot + sequenced deltas: fixed-point ticks, gap detection + resync, best/mid/microprice/spread. 5 unit tests + a proptest on book invariants. |
-| `agent` | ✅ | Native AI-agent runtime — hand-rolled Anthropic Messages API client + tool-use loop (the strategy coach). Tool trait + `bash`/`read_file` starter tools + CLI. 5 wire-format/dispatch tests. Needs `ANTHROPIC_API_KEY`. |
+| `agent` | ✅ | Native AI-agent runtime — hand-rolled Anthropic Messages API client + tool-use loop (the strategy coach). Tool trait + `bash`/`read_file` starter tools, **MCP client** (stdio JSON-RPC — attach any Model Context Protocol server's tools), and a CLI. 10 tests incl. an end-to-end MCP stdio round-trip. Needs `ANTHROPIC_API_KEY`. |
 | `replay` | ⏳ | Steps a tape through sim-time into the book; deterministic, simulated latency, fees. The game clock. |
 | `sim` | ⏳ | Player state: position, cash, realized/unrealized PnL, drawdown; matches your orders against the book. |
 | `tui` | ⏳ | The playable interface (ratatui): order-book ladder, price chart, position panel, and an "ask the coach" prompt wired to `agent` + market tools. |
@@ -47,7 +47,14 @@ cargo test  --workspace                                  # tape + book + agent t
 cargo run -p collector -- --coins BTC,ETH,SOL --secs 10 --out /tmp/probe.tape
 cargo run -p tape --example dump -- /tmp/probe.tape       # inspect a captured tape
 ANTHROPIC_API_KEY=sk-ant-... cargo run -p agent -- "do the crates build?"  # AI coach (CLI)
+# attach any MCP server (repeatable) — its tools join the coach's toolbox:
+cargo run -p agent -- --mcp "npx -y @modelcontextprotocol/server-filesystem ." "summarize the READMEs"
 ```
+
+The `agent` crate speaks **MCP** (Model Context Protocol): point `--mcp "<server command>"`
+at any stdio MCP server and its tools are namespaced (`mcp1__<tool>`) and added to the
+agent's toolbox automatically — the same plug-in surface the trading-sim will use to expose
+`read_book` / `my_position` / `recent_trades` as a market MCP server.
 
 ## Measured (v1 data spine)
 
