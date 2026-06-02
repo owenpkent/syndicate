@@ -122,6 +122,7 @@ pub trait Tool: Send + Sync {
 
 // ---------------------------------------------------------------- client
 /// Thin async client over `POST /v1/messages`.
+#[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
     api_key: String,

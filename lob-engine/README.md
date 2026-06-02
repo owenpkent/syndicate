@@ -37,7 +37,7 @@ firm like Jane Street uses.
 | `agent` | ✅ | Native AI-agent runtime — hand-rolled Anthropic Messages API client + tool-use loop (the strategy coach). Tool trait + `bash`/`read_file` starter tools, **MCP client** (stdio JSON-RPC — attach any Model Context Protocol server's tools), and a CLI. 10 tests incl. an end-to-end MCP stdio round-trip. Needs `ANTHROPIC_API_KEY`. |
 | `replay` | ✅ | Steps a tape through sim-time into the `book`, exposing the live market (mid/spread/microprice/ladder) in real price units; fixed-point in, dollars out; symbol auto-lock; `pace()` speed knob. The game clock. 3 tests + a `play` example (verified live: real BTC tape → bid/ask/mid/trades). |
 | `sim` | ✅ | Paper-trading ledger: cash, signed position, realized/unrealized PnL, fees, equity, max drawdown; market buy/sell (taker) vs a best bid/ask, mark-to-market each tick. Pure (no deps). 6 tests + a `paper` example (verified: buy-and-hold a real BTC tape → equity/PnL/fees/DD). |
-| `tui` | ⏳ | The playable interface (ratatui): order-book ladder, price chart, position panel, and an "ask the coach" prompt wired to `agent` + market tools. |
+| `tui` | ✅ | **The playable game** (`lob-game`, ratatui + crossterm): live order-book ladder, mid-price chart, position/PnL panel, and an "ask the coach" prompt wired to `agent`. Async — the replay clock, keyboard input, and the AI coach run concurrently. Keys: `b`/`s` trade, `f` flatten, `+`/`-` speed, space pause, `?` coach, `q` quit. |
 
 ## Build & run
 
@@ -48,6 +48,16 @@ cargo run -p collector -- --coins BTC,ETH,SOL --secs 10 --out /tmp/probe.tape
 cargo run -p tape --example dump -- /tmp/probe.tape       # inspect a captured tape
 cargo run -p replay --example play -- /tmp/probe.tape --speed 60  # watch the market replay
 ANTHROPIC_API_KEY=sk-ant-... cargo run -p agent -- "do the crates build?"  # AI coach (CLI)
+
+# ▶ PLAY THE GAME (capture a tape first, or use one you have):
+cargo run -p collector -- --coins BTC --secs 120 --out /tmp/btc.tape   # ~2 min of market
+ANTHROPIC_API_KEY=sk-ant-... cargo run -p tui -- /tmp/btc.tape --speed 30 --cash 10000
+```
+
+Trade the replayed market with `b`/`s` (buy/sell), `f` to flatten, `+`/`-` to change replay
+speed, `space` to pause, and `?` to ask the AI coach what to do given the live book and your
+position. The coach needs `ANTHROPIC_API_KEY`; without one the game still plays and the coach
+panel shows a hint. On quit it prints your final equity / PnL / drawdown.
 # attach any MCP server (repeatable) — its tools join the coach's toolbox:
 cargo run -p agent -- --mcp "npx -y @modelcontextprotocol/server-filesystem ." "summarize the READMEs"
 ```
@@ -80,9 +90,9 @@ a tuned hot path — the *measure-then-optimize* loop starts at the book engine.
 4. **Replay engine** — step a tape through sim-time into the book (the game clock). ✅
 5. **Sim** — player position / cash / PnL; match player orders against the book. ✅
 6. **TUI (ratatui)** — order-book ladder + price chart + position panel + an
-   "ask the coach" prompt wired to `agent` with `read_book` / `my_position` /
-   `recent_trades` tools. **← next; now it's playable.**
-7. **Polish** — difficulty/benchmarks (vs buy-hold and vs the coach's picks),
-   p50/p99 engine benchmarks + flamegraphs, more venues/symbols.
+   "ask the coach" prompt wired to `agent`. ✅ **— it's playable (`cargo run -p tui`).**
+7. **Polish** — expose `read_book`/`my_position`/`recent_trades` as a market MCP
+   server the coach pulls from live; scoring vs buy-hold and vs the coach's picks;
+   a proper line chart; p50/p99 engine benchmarks + flamegraphs; more venues/symbols.
 
 Numbers and flamegraphs land in this README as each stage ships.
