@@ -124,6 +124,61 @@ def scan_polymarket(buffer: float, min_fill: float = 25.0, pages: int = 6) -> li
     return out
 
 
+_CB = "https://api.exchange.coinbase.com/products/{p}/ticker"
+_KR = "https://api.kraken.com/0/public/Ticker"
+_HL = "https://api.hyperliquid.xyz/info"
+_CRYPTO = {"BTC": ("BTC-USD", "XBTUSD"), "ETH": ("ETH-USD", "ETHUSD"),
+           "SOL": ("SOL-USD", "SOLUSD"), "XRP": ("XRP-USD", "XRPUSD")}
+_UA = {"User-Agent": "sb-arb/0.1"}
+
+
+def _live_quotes(asset: str, cb_prod: str, kr_pair: str) -> dict:
+    """{venue: (bid, ask)} live from Coinbase + Kraken."""
+    q = {}
+    try:
+        d = requests.get(_CB.format(p=cb_prod), headers=_UA, timeout=10).json()
+        q["coinbase"] = (float(d["bid"]), float(d["ask"]))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        d = requests.get(_KR, params={"pair": kr_pair}, headers=_UA, timeout=10).json()
+        r = list(d["result"].values())[0]
+        q["kraken"] = (float(r["b"][0]), float(r["a"][0]))
+    except Exception:  # noqa: BLE001
+        pass
+    return q
+
+
+def scan_crypto(buffer: float, funding_apr: float = 0.20) -> list[dict]:
+    """CEX↔CEX spot cross (riskless) + extreme-funding carry (structural, not riskless)."""
+    out = []
+    # 1. spot cross: best bid on one venue above best ask on another, beyond fees(buffer)
+    for asset, (cb, kr) in _CRYPTO.items():
+        q = _live_quotes(asset, cb, kr)
+        if len(q) < 2:
+            continue
+        bid_v, (bid, _) = max(q.items(), key=lambda kv: kv[1][0])
+        ask_v, (_, ask) = min(q.items(), key=lambda kv: kv[1][1])
+        if bid_v != ask_v and bid > ask * (1 + buffer):
+            out.append({"kind": "crypto-spot", "event": asset, "margin": bid / ask - 1,
+                        "legs": [f"buy {ask_v} @ {ask:.2f}, sell {bid_v} @ {bid:.2f}"]})
+    # 2. funding carry: extreme Hyperliquid funding -> delta-neutral spot-vs-perp collects it
+    try:
+        meta, ctxs = requests.post(_HL, json={"type": "metaAndAssetCtxs"}, timeout=15).json()
+        for u, c in zip(meta["universe"], ctxs):
+            f = c.get("funding")
+            if f in (None, ""):
+                continue
+            apr = float(f) * 24 * 365            # hourly -> annualized
+            if abs(apr) > funding_apr:
+                side = "short perp + hold spot" if apr > 0 else "long perp + short spot"
+                out.append({"kind": "crypto-carry", "event": u["name"], "margin": abs(apr),
+                            "legs": [f"funding {apr*100:+.0f}%/yr -> {side} (delta-neutral; NOT riskless)"]})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("hyperliquid funding fetch failed: %s", exc)
+    return out
+
+
 def alert_slack(cands: list[dict]) -> None:
     url = os.getenv("SLACK_WEBHOOK_URL")
     if not url or not cands:
@@ -139,19 +194,23 @@ def alert_slack(cands: list[dict]) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Scan for arbitrage candidates (monitor only)")
-    p.add_argument("--source", choices=("both", "sportsbook", "polymarket"), default="both")
+    p.add_argument("--source", choices=("all", "sportsbook", "polymarket", "crypto"), default="all")
     p.add_argument("--buffer", type=float, default=0.01,
                    help="min margin to flag (filters slippage/fees noise); 0.01 = 1%%")
     p.add_argument("--min-size", type=float, default=25.0,
                    help="min fillable size (shares) on the thinnest Polymarket leg")
+    p.add_argument("--funding-apr", type=float, default=0.20,
+                   help="flag crypto funding-carry above this annualized rate (0.20 = 20%%)")
     p.add_argument("--slack", action="store_true", help="post candidates to SLACK_WEBHOOK_URL")
     args = p.parse_args()
 
     cands = []
-    if args.source in ("both", "sportsbook"):
+    if args.source in ("all", "sportsbook"):
         cands += scan_sportsbooks(args.buffer)
-    if args.source in ("both", "polymarket"):
+    if args.source in ("all", "polymarket"):
         cands += scan_polymarket(args.buffer, args.min_size)
+    if args.source in ("all", "crypto"):
+        cands += scan_crypto(args.buffer, args.funding_apr)
     cands.sort(key=lambda c: -c["margin"])
 
     if not cands:

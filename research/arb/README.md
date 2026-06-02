@@ -20,6 +20,16 @@ python research/arb/scan.py --slack                  # also post to SLACK_WEBHOO
   the best-ask of *every* outcome sums to < 1, buy them all for a guaranteed $1.
   (A single binary Yes/No market can't arb — No is Yes's complement, so the asks sum to
   ≥ 1 by construction.)
+- **Crypto** (`--source crypto`, live):
+  - *CEX↔CEX spot cross* (riskless) — Coinbase vs Kraken best bid/ask per asset. Honest
+    result: gaps are 0–3 **bp**, far below CEX fees → **no riskless spot arb** (efficient).
+  - *Funding carry* (Hyperliquid, **NOT riskless**) — coins whose annualized funding
+    exceeds `--funding-apr` (default 20%). Delta-neutral (hold spot + short perp when
+    funding is positive, or the inverse) collects the funding. This is the **most real
+    structural edge in the repo** — a known cash-and-carry trade — but it carries basis
+    risk, funding-flip risk, spot-borrow cost (for the short-spot leg), and is
+    capacity-limited (the extreme-funding names are thin alts; cleanest on liquid
+    positive-funding names like HYPE).
 
 ## The honest pipeline (why most "arbs" are fake)
 Gamma's cached `bestAsk` is **stale** — it flags many sum-to-<1 candidates that don't
