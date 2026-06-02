@@ -11,7 +11,24 @@ Findings are condensed into the `edge-research` memory and `docs/ROADMAP.md`.
 |------|--------|--------------|
 | `polymarket_scan.py` | Polymarket prediction markets | Characterize markets (vig/spread/liquidity) + cross-venue divergence vs the sharp sportsbook line (same MLB games) — does Polymarket misprice relative to a sharper book? |
 | `log_polymarket_divergence.py` | Polymarket vs sharp book | Accumulating log of pre-game Polymarket-vs-sharp divergence (MLB) → `polymarket_divergence`; does buying the poly-cheap side on a >X% gap win? |
-| `defi/` | **DeFi time-series** (Hyperliquid perps, CEX spot, Polymarket crypto books) | The pivot toward time-series prediction on decentralized finance — dense microstructure snapshots → `data/defi.duckdb`, plus CEX↔DEX lead-lag. See `defi/README.md`. |
+| `defi/` | **DeFi time-series** (Hyperliquid perps, CEX spot, Polymarket books) | Dense microstructure snapshots → `data/defi.duckdb` (+ `backfill_history.py`), CEX↔DEX lead-lag, crypto returns-vs-volatility predictability, and broad Polymarket calibration. See `defi/README.md`. |
+| `mlb/` | **MLB** (free MLB Stats API) | Baseball win-prob: Elo+features on 38k games + a real FIP starting-pitcher rating. ~56%; pitcher identity barely helps (variance dominates). See `mlb/README.md`. |
+| `nhl/` | **NHL** (free NHL web API) | Hockey win-prob: binary Elo on 18k games. ~56%; ceiling = starting goalie. See `nhl/README.md`. |
+| `wc/` | **World Cup / soccer** (free intl-results CSV) | 3-class (W/D/L) Elo on 49k internationals; ~51% on World-Cup holdout; predicts 2026. See `wc/README.md`. |
+| `kalshi/` | **Kalshi** (regulated prediction market) | Authenticated API access (RSA signing). Data access poor for research; kept as infra. See `kalshi/README.md`. |
+
+Visualizations for all of the above live in `../notebooks/` (auto-rendered daily to a
+dark HTML dashboard). Cross-market findings are condensed into the `market-efficiency-survey`,
+`crypto-predictability`, `mlb-model`, `nhl-model`, `wc-model`, and `polymarket-exploration` memories.
+
+## The headline finding — liquidity = efficiency
+A broad search (sports books, crypto price, Polymarket across categories, dYdX perps,
+Kalshi) converged on one conclusion: **every market is efficient where it's liquid**, and
+"inefficiency" only appears where it's too thin to trade (dYdX long-tail: real funding
+dislocation, ~$0 volume) or needs infrastructure rather than a model (CEX↔DEX speed,
+cross-venue matching). The prediction *craft* pays on **un-priced signal** — sports
+*outcomes* (NBA 66% / MLB·NHL ~56% / WC ~51% 3-way), crypto *volatility* (R²≈0.42) — not
+on beating liquid market *prices* (sharp closing lines, BTC direction, calibrated Polymarket).
 
 ## Context — the pivot to DeFi time-series
 The real goal is honing **time-series prediction**, target domain **decentralized

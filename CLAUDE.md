@@ -15,18 +15,26 @@ keep docs honest.
 Everything is one installable Python package (`sportsball`) running on a single
 Docker image; each agent is a console entrypoint.
 
-**Direction (2026-06): pivot to DeFi time-series.** The owner's actual goal is
-honing **time-series prediction**, target domain **decentralized finance** — the
-sports pipeline was scaffolding for the methodology (find signal → validate
-honestly → backtest realistically). New work lives in `research/defi/`: free,
-keyless collectors snapshotting Hyperliquid perps (funding/OI/book), Coinbase +
-Kraken spot, and Polymarket crypto books into a separate `data/defi.duckdb`, a
-CEX↔DEX lead-lag analysis, and a one-shot `backfill_history.py` that seeds weeks
-of candle/funding/resolved-outcome history (everything but order-book depth, which
-is live-only). See `research/defi/README.md`. Visualizations live in `notebooks/`
-(`[notebook]` extra → jupyterlab; `01_defi_explore`, `02_model_eval`,
-`03_polymarket_eval`). The sports system below remains intact and documented but
-is no longer the focus.
+**Direction (2026-06): a multi-market prediction lab.** The owner's actual goal is
+honing **time-series / probabilistic prediction**, judged by accuracy & calibration on
+**un-priced signal** — not by beating liquid market prices. The NBA betting pipeline
+(below) was the scaffolding; the live work is in `research/` + `notebooks/` (see
+`research/README.md`). Highlights:
+- **Multi-sport win-prob models**, all reusing the sport-agnostic `walk_forward` Elo +
+  feature pipeline (or a purpose-fit variant): `research/mlb/` (38k games, +real FIP
+  pitcher rating), `research/nhl/` (18k), `research/wc/` (3-class W/D/L soccer, predicts
+  2026). NBA ~66%, MLB/NHL ~56%, WC ~51% 3-way — honest ceilings, not weak models.
+- **DeFi time-series** (`research/defi/`): free collectors → `data/defi.duckdb`
+  (Hyperliquid perps, CEX spot, Polymarket books) + `backfill_history.py`; lead-lag,
+  crypto returns-vs-volatility (direction ~random, vol R²≈0.42), broad Polymarket
+  calibration. `research/kalshi/` adds authenticated Kalshi access (secrets gitignored).
+- **`notebooks/`** (`[notebook]` extra): 01–11, each dark-themed and **auto-rendered
+  daily to an HTML dashboard** (`make render` / `scripts/render_notebooks.py`, cron 04:30).
+- **Headline finding** (`market-efficiency-survey` memory): liquidity = efficiency; every
+  tradeable market is efficient, edge only lives in untradeable-thin or infra-gated spots.
+
+Per-sport DuckDB stores (`data/{mlb,nhl,wc,defi}.duckdb`) are all in `make backup`. The
+sports betting system below remains intact and documented but is no longer the focus.
 
 ## Commands
 
