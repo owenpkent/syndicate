@@ -15,3 +15,5 @@ src/analytics_engine/
 backups/
 .ipynb_checkpoints
 notebooks/rendered/
+secrets/
+*.pem
