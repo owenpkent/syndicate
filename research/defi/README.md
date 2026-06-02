@@ -63,6 +63,28 @@ python research/defi/analyze_leadlag.py
 python research/defi/analyze_leadlag.py --grid 5 --max-lag 6 --venue coinbase
 ```
 
+`leadlag_candles.py` (read-only) — the richer companion: instead of the sparse live
+snapshots, it uses the accumulated 1-minute candles (`hl_candles` vs `cex_candles`,
+~5k aligned minutes per major). Per coin it reports the cross-correlation peak lag
+(synced at 0 in practice, corr 0.90–0.97) **and** an out-of-sample predictive test —
+does the other venue's current return help predict a venue's next minute? Finds a small
+asymmetric edge: **Coinbase spot mildly leads the Hyperliquid perp** (ΔR² up to ~0.03 on
+thin XRP; the reverse ~0), sub-3% and likely cost-eaten. Minute bars can't see sub-second
+arb.
+
+`vol_forecast_sim.py` (read-only) — forward simulation of crypto **movement magnitude**
+(the honest target; direction is ~random, notebook 10). Two stages: (1) walk-forward,
+no-look-ahead HAR / HAR-CJ forecast of 15-min realized variance vs naive & EWMA baselines,
+scored by QLIKE / R²(logRV) / Mincer-Zarnowitz calibration — HAR wins on all majors
+(OOS R²≈0.4, slope≈1); the jump split (HAR-CJ) helps only marginally. (2) A **gated**
+vol-targeting backtest (runs only if stage 1 beats baselines): it stabilizes realized risk
+(~40% lower vol-of-vol) but earns no directional alpha. Visualized in `notebooks/14`.
+
+```bash
+python research/defi/leadlag_candles.py --coins BTC,ETH,SOL,XRP --max-lag 5
+python research/defi/vol_forecast_sim.py --assets BTC,ETH,SOL --block-min 15
+```
+
 ## Run
 
 ```bash
