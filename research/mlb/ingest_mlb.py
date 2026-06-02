@@ -31,9 +31,11 @@ DEFAULT_DB = str(REPO / "data" / "mlb.duckdb")
 
 
 def season_games(season: int) -> list[tuple]:
-    """Final regular-season games for a season: (game_pk, date, season, home, away, hs, as)."""
-    r = requests.get(SCHED, params={"sportId": 1, "season": season, "gameType": "R"},
-                     timeout=30)
+    """Final regular-season games: (game_pk, date, season, home, away, hs, as,
+    home_sp_id, home_sp, away_sp_id, away_sp). Starters via the cheap
+    probablePitcher hydrate (~99% coverage on completed games)."""
+    r = requests.get(SCHED, params={"sportId": 1, "season": season, "gameType": "R",
+                                    "hydrate": "probablePitcher"}, timeout=30)
     r.raise_for_status()
     out = []
     for d in r.json().get("dates", []):
@@ -44,8 +46,10 @@ def season_games(season: int) -> list[tuple]:
             hs, as_ = t["home"].get("score"), t["away"].get("score")
             if hs is None or as_ is None:
                 continue
+            hp, ap = t["home"].get("probablePitcher") or {}, t["away"].get("probablePitcher") or {}
             out.append((g["gamePk"], g.get("officialDate") or g["gameDate"][:10], season,
-                        t["home"]["team"]["name"], t["away"]["team"]["name"], int(hs), int(as_)))
+                        t["home"]["team"]["name"], t["away"]["team"]["name"], int(hs), int(as_),
+                        hp.get("id"), hp.get("fullName"), ap.get("id"), ap.get("fullName")))
     return out
 
 
@@ -59,7 +63,14 @@ def main() -> None:
     con = duckdb.connect(args.db)
     con.execute("""CREATE TABLE IF NOT EXISTS games (
         game_pk BIGINT PRIMARY KEY, game_date DATE, season INTEGER,
-        home_team TEXT, away_team TEXT, home_score INTEGER, away_score INTEGER);""")
+        home_team TEXT, away_team TEXT, home_score INTEGER, away_score INTEGER,
+        home_sp_id BIGINT, home_sp TEXT, away_sp_id BIGINT, away_sp TEXT);""")
+    # Backfill starter columns onto a pre-existing (sp-less) table.
+    cols = {c[1] for c in con.execute("PRAGMA table_info(games)").fetchall()}
+    for col, typ in (("home_sp_id", "BIGINT"), ("home_sp", "TEXT"),
+                     ("away_sp_id", "BIGINT"), ("away_sp", "TEXT")):
+        if col not in cols:
+            con.execute(f"ALTER TABLE games ADD COLUMN {col} {typ}")
     grand = 0
     for season in range(args.start, args.end + 1):
         try:
@@ -67,8 +78,13 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001
             log.warning("season %d fetch failed: %s", season, exc); continue
         if rows:
+            # Upsert so a re-run backfills starters (and refreshes the live season).
             con.executemany(
-                "INSERT INTO games VALUES (?,?,?,?,?,?,?) ON CONFLICT DO NOTHING;", rows)
+                """INSERT INTO games VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT (game_pk) DO UPDATE SET
+                     home_score=excluded.home_score, away_score=excluded.away_score,
+                     home_sp_id=excluded.home_sp_id, home_sp=excluded.home_sp,
+                     away_sp_id=excluded.away_sp_id, away_sp=excluded.away_sp;""", rows)
         grand += len(rows)
         log.info("season %d: %d final games", season, len(rows))
         time.sleep(0.3)
