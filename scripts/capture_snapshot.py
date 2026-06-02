@@ -18,7 +18,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import duckdb
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -26,7 +25,7 @@ from sportsball.logging_conf import get_logger  # noqa: E402
 from sportsball.matching import canonical_event_id  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from capture_odds_quotes import SPORTS, ET, _key, LIVE_URL  # noqa: E402
+from capture_odds_quotes import SPORTS, ET, _key, LIVE_URL, connect_duckdb  # noqa: E402
 from backfill_odds_markets_duckdb import DEFAULT_DB  # noqa: E402
 
 log = get_logger("capture_snapshot")
@@ -82,7 +81,7 @@ def main():
 
     ts = datetime.now(timezone.utc)
     rows = parse_snapshot(r.json(), prefix, ts)
-    con = duckdb.connect(args.db)
+    con = connect_duckdb(args.db)
     con.execute(
         """CREATE TABLE IF NOT EXISTS odds_snapshots (
             event_id TEXT, sport TEXT, market TEXT, bookmaker TEXT, side TEXT,

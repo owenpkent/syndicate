@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -75,13 +76,34 @@ def rows_from_live(snapshot: list[dict], prefix: str) -> list[tuple]:
     return out
 
 
+def connect_duckdb(db_path: str, *, retries: int = 6, base_delay: float = 5.0):
+    """duckdb.connect with backoff on a conflicting write lock.
+
+    A manual DuckDB session or an overlapping cron run holds the single-writer
+    lock; on a dense intraday cron that races a snapshot to failure (and the
+    snapshot is then lost). Retry instead of dropping the data point.
+    """
+    last: Exception | None = None
+    for attempt in range(retries):
+        try:
+            return duckdb.connect(db_path)
+        except duckdb.IOException as exc:  # lock held by another process
+            if "lock" not in str(exc).lower():
+                raise
+            last = exc
+            delay = base_delay * (attempt + 1)
+            log.warning("DuckDB lock held; retry %d/%d in %.0fs.", attempt + 1, retries, delay)
+            time.sleep(delay)
+    raise last  # type: ignore[misc]
+
+
 def _key() -> str:
     return os.getenv("ODDS_API_KEY") or next(
         (l.split("=", 1)[1].strip() for l in open(".env") if l.startswith("ODDS_API_KEY=")), "")
 
 
 def write_quotes(db_path: str, rows: list[tuple], phase: str, sport: str, ts) -> int:
-    con = duckdb.connect(db_path)
+    con = connect_duckdb(db_path)
     con.execute(
         """CREATE TABLE IF NOT EXISTS odds_quotes (
             event_id TEXT, game_date DATE, market TEXT, bookmaker TEXT, side TEXT,
