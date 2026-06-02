@@ -1,28 +1,30 @@
 # lob-engine
 
-A low-latency **market-data + order-book + replay** engine, built to learn (and
-demonstrate) the systems side of quant infrastructure. The Rust crates own the
-latency-critical spine; an OCaml strategy layer (added later) owns the
-correctness-critical trading logic — the same division of labor a firm like Jane
-Street uses.
+A native-Rust **trading-simulator game with an AI strategy coach** — built on real
+market microstructure. You replay a real captured order-book tape, trade against the
+reconstructed book, and an embedded AI coach reads the live market + your position and
+advises you. Under the hood it's also a genuine low-latency market-data / order-book /
+replay engine — the systems side of quant infrastructure, the same division of labor a
+firm like Jane Street uses.
 
 > Lives inside the `sportsball` research repo for now (it reuses the existing
 > Hyperliquid/CEX collectors and `data/` stores). When polished it can be lifted
 > into a standalone repo with `git subtree split`, preserving its own history.
 
-## Architecture
+## The game
 
 ```
-   exchange WS ─▶  collector  ─▶  tape (normalized binary log)
-                                    │
-                                    ▼
-                          book engine (reconstruction)   ── planned
-                                    │
-                                    ▼
-                          replay engine (event-driven)   ── planned
-                                    │  typed event/fill stream
-                                    ▼
-                          OCaml strategy (A–S quoting)    ── planned
+  exchange WS ─▶ collector ─▶ tape ─▶ replay ─▶ book (the ladder you watch)
+                                         │
+                                         ▼
+                                  sim: your position / cash / PnL, your fills
+                                         │
+                                         ▼
+                                  TUI (ratatui): ladder + chart + position
+                                         │  "what should I do here?"
+                                         ▼
+                                  agent: AI strategy coach (read_book,
+                                         my_position, recent_trades tools)
 ```
 
 ## Crates
@@ -30,17 +32,21 @@ Street uses.
 | Crate | Status | What it does |
 |---|---|---|
 | `tape` | ✅ | Normalized append-only binary market-data log (order-book snapshots + trades). Hand-rolled little-endian codec, no serde — explicit wire format, bounds-checked decode. Unit-tested roundtrip + corruption handling. |
-| `collector` | ✅ (v1) | Hyperliquid WebSocket → tape. Subscribes `l2Book` + `trades`, reconnects with backoff, logs throughput + an ingest-latency proxy. |
-| `book` | ⏳ | Order-book reconstruction engine (efficient price-level structures, gap detection, snapshot resync). The centerpiece. |
-| `replay` | ⏳ | Deterministic event-driven backtest/replay: simulated latency, queue-aware fills, fees. |
+| `collector` | ✅ | Hyperliquid WebSocket → tape. Subscribes `l2Book` + `trades`, reconnects with backoff, logs throughput + an ingest-latency proxy. |
+| `book` | ✅ | L2 order-book reconstruction from snapshot + sequenced deltas: fixed-point ticks, gap detection + resync, best/mid/microprice/spread. 5 unit tests + a proptest on book invariants. |
+| `agent` | ✅ | Native AI-agent runtime — hand-rolled Anthropic Messages API client + tool-use loop (the strategy coach). Tool trait + `bash`/`read_file` starter tools + CLI. 5 wire-format/dispatch tests. Needs `ANTHROPIC_API_KEY`. |
+| `replay` | ⏳ | Steps a tape through sim-time into the book; deterministic, simulated latency, fees. The game clock. |
+| `sim` | ⏳ | Player state: position, cash, realized/unrealized PnL, drawdown; matches your orders against the book. |
+| `tui` | ⏳ | The playable interface (ratatui): order-book ladder, price chart, position panel, and an "ask the coach" prompt wired to `agent` + market tools. |
 
 ## Build & run
 
 ```bash
 cargo build --workspace
-cargo test  --workspace                                  # tape codec + book tests
+cargo test  --workspace                                  # tape + book + agent tests
 cargo run -p collector -- --coins BTC,ETH,SOL --secs 10 --out /tmp/probe.tape
 cargo run -p tape --example dump -- /tmp/probe.tape       # inspect a captured tape
+ANTHROPIC_API_KEY=sk-ant-... cargo run -p agent -- "do the crates build?"  # AI coach (CLI)
 ```
 
 ## Measured (v1 data spine)
@@ -58,13 +64,18 @@ inflated by Hyperliquid's snapshot cadence; a tighter per-message latency lands 
 delta-streaming venue in the book stage. Numbers here are throughput/correctness, not yet
 a tuned hot path — the *measure-then-optimize* loop starts at the book engine.
 
-## Roadmap (the SWE portfolio arc)
+## Roadmap (toward the playable game)
 
-1. **Data spine** — collector + tape, with measured ingest latency/throughput. ← *here*
-2. **Book engine** — reconstruct full L2 from a delta-streaming venue (Coinbase
-   `level2`); benchmark p50/p99 update latency, property-test book invariants.
-3. **Replay engine** — replay the tape through a `Strategy` trait, realistic fills.
-4. **Strategy (OCaml)** — Avellaneda–Stoikov market-maker; decompose PnL into
-   spread captured vs adverse selection vs inventory.
+1. **Data spine** — collector + tape, with measured ingest latency/throughput. ✅
+2. **Book engine** — L2 reconstruction, gap detection, proptest invariants. ✅
+3. **AI coach** — native Rust agent runtime (Anthropic client + tool loop). ✅
+4. **Replay engine** — step a tape through sim-time into the book (the game clock);
+   deterministic, simulated latency, fees. ← *next*
+5. **Sim** — player position / cash / PnL; match player orders against the book.
+6. **TUI (ratatui)** — order-book ladder + price chart + position panel + an
+   "ask the coach" prompt wired to `agent` with `read_book` / `my_position` /
+   `recent_trades` tools. **Now it's playable.**
+7. **Polish** — difficulty/benchmarks (vs buy-hold and vs the coach's picks),
+   p50/p99 engine benchmarks + flamegraphs, more venues/symbols.
 
-Performance numbers and flamegraphs land in this README as each stage ships.
+Numbers and flamegraphs land in this README as each stage ships.
