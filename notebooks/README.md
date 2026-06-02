@@ -19,5 +19,6 @@ make setup                                   # base env
 | `01_defi_explore.ipynb` | `data/defi.duckdb` | HL↔CEX basis & lead-lag on backfilled 1-min candles, funding over time, funding/OI cross-section, and a basis→next-move baseline. Uses `backfill_history.py` history (populated now). |
 | `02_model_eval.ipynb` | `data/sportsball.duckdb` | Offline walk-forward holdout of the v4 win-prob model — reliability/calibration curve, accuracy by confidence bucket, model-vs-market (CLV proxy). No Postgres needed. |
 | `03_polymarket_eval.ipynb` | `data/defi.duckdb` | Scores Polymarket crypto mids against settled outcomes (`pm_resolved`) — Brier + calibration, using the mid ~24h pre-close as the prediction. Populated from backfilled resolved markets. |
+| `04_model_predictions.ipynb` | `data/sportsball.duckdb` | Per-game view of what *each* learner predicts — logistic vs GBT vs ensemble vs market — with the actual outcome. Dot plot of recent games, where-they-disagree scatter, and who-wins-the-disagreements analysis. Out-of-sample, mirrors `pipelines/train.py`. |
 
 Both degrade gracefully on sparse data and re-run idempotently.
