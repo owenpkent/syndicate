@@ -51,17 +51,21 @@ binary market-data log) · `collector` (Hyperliquid WS → tape, verified live) 
 reconstruction from snapshot+sequenced deltas, gap detection, proptest invariants) · `agent`
 (native AI runtime — hand-rolled Anthropic Messages client + tool-use loop, `bash`/`read_file`
 tools, **MCP client** over stdio JSON-RPC so any Model Context Protocol server's tools plug in,
-needs `ANTHROPIC_API_KEY`). **Planned:** `replay` (tape → sim-time → book, the game clock) →
-`sim` (player position/cash/PnL + fills) → `tui` (ratatui: book ladder + chart + position +
-"ask the coach"). See `lob-engine/README.md`.
+needs `ANTHROPIC_API_KEY`) · `replay` (tape → sim-time → book, real-unit market, `pace()` speed
+knob) · `sim` (player position/cash/PnL/drawdown ledger, taker fills) · `tui` (**`lob-game`** —
+ratatui+crossterm: async replay clock + input + coach; ladder/chart/PnL panels). **THE GAME IS
+PLAYABLE** (`cargo run -p tui -- <tape>`); 29 tests green, workspace builds warning-clean.
+Interactive → run in a real terminal, not CI. **Polish backlog:** expose
+`read_book`/`my_position`/`recent_trades` as a market MCP server the coach pulls from live;
+scoring vs buy-hold; proper line chart; engine p50/p99 benchmarks. See `lob-engine/README.md`.
 
 ```bash
 # Rust toolchain via rustup (installed under ~/.cargo, ~/.rustup); source the env first
 source "$HOME/.cargo/env"
 cd lob-engine && cargo build --workspace && cargo test --workspace
-cargo run -p collector -- --coins BTC,ETH,SOL --secs 10 --out /tmp/probe.tape  # live probe
-cargo run -p tape --example dump -- /tmp/probe.tape                            # inspect a tape
-ANTHROPIC_API_KEY=… cargo run -p agent -- --mcp "<server cmd>" "your request"  # AI coach + MCP
+cargo run -p collector -- --coins BTC --secs 120 --out /tmp/btc.tape           # capture a tape
+ANTHROPIC_API_KEY=… cargo run -p tui -- /tmp/btc.tape --speed 30 --cash 10000  # ▶ PLAY THE GAME
+cargo run -p agent -- --mcp "<server cmd>" "your request"                      # AI coach CLI + MCP
 ```
 
 `lob-engine/` conventions: the hot path stays allocation-light and the tape wire format
