@@ -65,7 +65,7 @@ else
 fi
 
 # --- DuckDB stores (host-owned files): sports research + DeFi time-series ---
-for store in sportsball defi mlb wc; do
+for store in sportsball defi mlb wc nhl; do
   if [[ -f "data/${store}.duckdb" ]]; then
     echo ">> Copying DuckDB store ${store}.duckdb..."
     cp "data/${store}.duckdb" "${DEST}/${store}.duckdb"
