@@ -36,7 +36,7 @@ firm like Jane Street uses.
 | `book` | ✅ | L2 order-book reconstruction from snapshot + sequenced deltas: fixed-point ticks, gap detection + resync, best/mid/microprice/spread. 5 unit tests + a proptest on book invariants. |
 | `agent` | ✅ | Native AI-agent runtime — hand-rolled Anthropic Messages API client + tool-use loop (the strategy coach). Tool trait + `bash`/`read_file` starter tools, **MCP client** (stdio JSON-RPC — attach any Model Context Protocol server's tools), and a CLI. 10 tests incl. an end-to-end MCP stdio round-trip. Needs `ANTHROPIC_API_KEY`. |
 | `replay` | ✅ | Steps a tape through sim-time into the `book`, exposing the live market (mid/spread/microprice/ladder) in real price units; fixed-point in, dollars out; symbol auto-lock; `pace()` speed knob. The game clock. 3 tests + a `play` example (verified live: real BTC tape → bid/ask/mid/trades). |
-| `sim` | ⏳ | Player state: position, cash, realized/unrealized PnL, drawdown; matches your orders against the book. |
+| `sim` | ✅ | Paper-trading ledger: cash, signed position, realized/unrealized PnL, fees, equity, max drawdown; market buy/sell (taker) vs a best bid/ask, mark-to-market each tick. Pure (no deps). 6 tests + a `paper` example (verified: buy-and-hold a real BTC tape → equity/PnL/fees/DD). |
 | `tui` | ⏳ | The playable interface (ratatui): order-book ladder, price chart, position panel, and an "ask the coach" prompt wired to `agent` + market tools. |
 
 ## Build & run
@@ -78,10 +78,10 @@ a tuned hot path — the *measure-then-optimize* loop starts at the book engine.
 2. **Book engine** — L2 reconstruction, gap detection, proptest invariants. ✅
 3. **AI coach** — native Rust agent runtime (Anthropic client + tool loop). ✅
 4. **Replay engine** — step a tape through sim-time into the book (the game clock). ✅
-5. **Sim** — player position / cash / PnL; match player orders against the book. ← *next*
+5. **Sim** — player position / cash / PnL; match player orders against the book. ✅
 6. **TUI (ratatui)** — order-book ladder + price chart + position panel + an
    "ask the coach" prompt wired to `agent` with `read_book` / `my_position` /
-   `recent_trades` tools. **Now it's playable.**
+   `recent_trades` tools. **← next; now it's playable.**
 7. **Polish** — difficulty/benchmarks (vs buy-hold and vs the coach's picks),
    p50/p99 engine benchmarks + flamegraphs, more venues/symbols.
 
