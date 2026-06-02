@@ -44,6 +44,57 @@ def pitcher_run_prevention(games, window: int = 10, league_default: float = 4.5)
     return {"home_sp_ra": h_ra, "away_sp_ra": a_ra, "pitcher_adv_home": adv}
 
 
+def rolling_fip(logs, window: int = 15, min_starts: int = 3):
+    """Point-in-time **FIP-core** per (pitcher, game) from per-start logs.
+
+    The real pitcher signal (vs the team-contaminated run-prevention proxy): FIP
+    isolates what a pitcher controls — strikeouts, walks, home runs.
+    ``core = (13·HR + 3·(BB+HBP) − 2·K) / IP`` (the season FIP constant is dropped;
+    it cancels in a home−away difference). Lower is better.
+
+    ``logs``: iterable of ``(pitcher_id, game_pk, date, outs, so, bb, hr, hbp)``.
+    Each game's rating is the core over that pitcher's prior ``window`` starts only
+    (updated AFTER → no leakage); pitchers with < ``min_starts`` priors map to
+    ``None``. Returns ``(map[(pitcher_id, game_pk)] -> core|None, league_core)``.
+    """
+    from collections import defaultdict, deque
+
+    by_p: dict = defaultdict(list)
+    tHR = tBB = tHBP = tSO = tOuts = 0
+    for r in logs:
+        by_p[r[0]].append(r)
+        tHR += r[6]; tBB += r[5]; tHBP += r[7]; tSO += r[4]; tOuts += r[3]
+    league = (13 * tHR + 3 * (tBB + tHBP) - 2 * tSO) / (tOuts / 3) if tOuts else 0.0
+    out: dict = {}
+    for pid, rows in by_p.items():
+        rows.sort(key=lambda r: (r[2], r[1]))           # by date, then game_pk
+        win: deque = deque(maxlen=window)
+        for (_pid, gpk, _date, outs, so, bb, hr, hbp) in rows:
+            if len(win) >= min_starts:
+                so_ = sum(w[0] for w in win); bb_ = sum(w[1] for w in win)
+                hr_ = sum(w[2] for w in win); hbp_ = sum(w[3] for w in win)
+                outs_ = sum(w[4] for w in win)
+                core = (13 * hr_ + 3 * (bb_ + hbp_) - 2 * so_) / (outs_ / 3) if outs_ else league
+            else:
+                core = None
+            out[(_pid, gpk)] = core
+            win.append((so, bb, hr, hbp, outs))
+    return out, league
+
+
+def fip_advantage(games, fip_map, league):
+    """``away_fip − home_fip`` per game (positive favors the home side — its starter
+    has the lower/better FIP). ``games``: ``(home_sp_id, away_sp_id, game_pk)``;
+    missing/insufficient starters fall back to the league core (→ 0 contribution)."""
+    out = []
+    for home_sp, away_sp, gpk in games:
+        hf = fip_map.get((home_sp, gpk)); af = fip_map.get((away_sp, gpk))
+        hf = league if hf is None else hf
+        af = league if af is None else af
+        out.append(af - hf)
+    return out
+
+
 if __name__ == "__main__":  # tiny self-check
     # ace (id 1) always shuts out; batting-practice (id 2) always allows 10.
     games = [(1, 2, 5, 0), (1, 2, 6, 0), (2, 1, 0, 10), (1, 2, 4, 0)]
