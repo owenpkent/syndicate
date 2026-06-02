@@ -129,7 +129,7 @@ calibrate:
 	@echo "Output saved to data/plots/calibration_plot.png"
 
 render:                        # execute all notebooks -> dated HTML dashboard
-	@./scripts/render_notebooks.sh
+	@$(PYTHON) scripts/render_notebooks.py
 
 clv:
 	@DB_HOST=localhost $(PYTHON) -m sportsball.tools.clv

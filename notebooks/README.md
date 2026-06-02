@@ -27,7 +27,7 @@ All degrade gracefully on sparse data and re-run idempotently.
 
 ## Rendered dashboard (passive, no Jupyter)
 
-`make render` (or `scripts/render_notebooks.sh`) executes every notebook **fresh
+`make render` (or `python scripts/render_notebooks.py`) executes every notebook **fresh
 against current data** and writes dated HTML to `notebooks/rendered/<UTC date>/`,
 with an `index.html` and a `latest` symlink — open `notebooks/rendered/latest/index.html`
 in a browser. Each notebook is retried a few times (read-only DuckDB opens can
